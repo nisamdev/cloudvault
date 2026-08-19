@@ -5,6 +5,7 @@ import api from "@/api/client";
 export const useFilesStore = defineStore("files", () => {
   const items = ref([]);
   const loading = ref(false);
+  const loadingMore = ref(false);
   const error = ref("");
   const page = ref(1);
   const totalPages = ref(1);
@@ -16,6 +17,10 @@ export const useFilesStore = defineStore("files", () => {
 
   const hasFiles = computed(() => items.value.length > 0);
   const isEmpty = computed(() => !loading.value && items.value.length === 0);
+  const hasMore = computed(() => page.value < totalPages.value);
+
+  // Remembered so loadMore() can ask for the next page of the same query.
+  let lastQuery = {};
 
   async function fetchFiles({
     fileType = null,
@@ -24,8 +29,11 @@ export const useFilesStore = defineStore("files", () => {
     trashed = false,
     q = "",
     page: pageNum = 1,
+    append = false,
   } = {}) {
-    loading.value = true;
+    lastQuery = { fileType, folderId, labelIds, trashed, q };
+    loading.value = !append;
+    loadingMore.value = append;
     error.value = "";
 
     try {
@@ -44,7 +52,8 @@ export const useFilesStore = defineStore("files", () => {
         },
       });
 
-      items.value = data.files;
+      // Infinite scroll appends; every other call replaces.
+      items.value = append ? [...items.value, ...data.files] : data.files;
       page.value = Number(headers["x-page"] ?? 1);
       totalPages.value = Number(headers["x-total-pages"] ?? 1);
       totalCount.value = Number(headers["x-total-count"] ?? data.files.length);
@@ -53,7 +62,15 @@ export const useFilesStore = defineStore("files", () => {
       throw e;
     } finally {
       loading.value = false;
+      loadingMore.value = false;
     }
+  }
+
+  /** Fetches the next page of the current query and appends it. */
+  async function loadMore() {
+    if (loadingMore.value || loading.value || !hasMore.value) return;
+
+    await fetchFiles({ ...lastQuery, page: page.value + 1, append: true });
   }
 
   async function upload(file, { visibility = "private", folderId = null } = {}) {
@@ -167,6 +184,8 @@ export const useFilesStore = defineStore("files", () => {
     items,
     uploads,
     loading,
+    loadingMore,
+    hasMore,
     error,
     page,
     totalPages,
@@ -174,6 +193,7 @@ export const useFilesStore = defineStore("files", () => {
     hasFiles,
     isEmpty,
     fetchFiles,
+    loadMore,
     upload,
     trash,
     restore,

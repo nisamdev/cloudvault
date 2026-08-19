@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatFileSize, formatRelativeDate, fileIcon } from "./formatting";
+import { formatFileSize, formatRelativeDate, fileIcon, dateGroup, groupByDate } from "./formatting";
 
 describe("formatFileSize", () => {
   it("formats zero", () => expect(formatFileSize(0)).toBe("0 B"));
@@ -39,5 +39,55 @@ describe("fileIcon", () => {
 
   it("falls back to a generic icon", () => {
     expect(fileIcon({ file_type: "file", mime_type: "application/x-thing" }).icon).toBe("fa-file");
+  });
+});
+
+describe("dateGroup", () => {
+  const daysAgo = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return d.toISOString();
+  };
+
+  it("labels today and yesterday", () => {
+    expect(dateGroup(daysAgo(0))).toBe("Today");
+    expect(dateGroup(daysAgo(1))).toBe("Yesterday");
+  });
+
+  it("groups the rest of the week together", () => {
+    expect(dateGroup(daysAgo(3))).toBe("Earlier this week");
+  });
+
+  it("falls back to the month for older dates", () => {
+    const older = new Date();
+    older.setDate(older.getDate() - 40);
+    const label = dateGroup(older.toISOString());
+    expect(label).not.toBe("Earlier this week");
+    expect(label.length).toBeGreaterThan(2);
+  });
+
+  it("handles a missing date", () => {
+    expect(dateGroup(null)).toBe("Undated");
+  });
+});
+
+describe("groupByDate", () => {
+  it("keeps incoming order and buckets by label", () => {
+    const now = new Date().toISOString();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+
+    const groups = groupByDate([
+      { id: 1, created_at: now },
+      { id: 2, created_at: now },
+      { id: 3, created_at: yesterday },
+    ]);
+
+    expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday"]);
+    expect(groups[0].items).toHaveLength(2);
+    expect(groups[1].items).toHaveLength(1);
+  });
+
+  it("returns nothing for an empty list", () => {
+    expect(groupByDate([])).toEqual([]);
   });
 });

@@ -70,8 +70,9 @@ onMounted(async () => {
 
 function load() {
   filesStore.fetchFiles({
-    // No file_type filter: this listing shows documents and photos together,
-    // like Drive. The Photos screen will add a gallery view over the same data.
+    // Documents only — photos have their own gallery, as the docs specify
+    // ("Files Section" and "Images Section"). Searching still spans both.
+    fileType: searching.value ? null : "file",
     // undefined = every folder; "" = the root only.
     folderId: ignoreFolder.value ? undefined : (library.currentFolderId ?? ""),
     labelIds: library.selectedLabelIds,

@@ -130,6 +130,8 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   "All files" to move back to the top). Deleting a folder trashes its whole branch.
 - **Labels** — colour-coded tags shared across the family, applied per file, usable as a
   cross-cutting filter
+- **Photos** — responsive gallery grouped by date (Today / Yesterday / Earlier this week / month),
+  lazy-loaded thumbnails, infinite scroll, hover overlay, and the shared lightbox with ← → paging
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
@@ -148,9 +150,9 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-246 backend specs and 13 frontend tests, all passing.
+246 backend specs and 19 frontend tests, all passing.
 
-**Not built yet:** photo gallery grid and lightbox, the Shared screen, settings screen, OAuth sign-in. Those screens are routed
+**Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
 [`docs/PHASE1_IMPLEMENTATION_GUIDE.md`](./docs/PHASE1_IMPLEMENTATION_GUIDE.md) weeks 4–8.
 
@@ -192,6 +194,9 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **Files and Photos are separate listings**, as the docs specify — documents in My Files, images in
+  the gallery. Search deliberately spans both, since "where did I put that" does not care which
+  section something lives in.
 - **Confirmations and prompts are in-app dialogs**, not `window.confirm` / `window.prompt`: the
   native ones cannot be styled, are inconsistent across browsers, and block the event loop.
   `useDialog()` keeps the promise-based call shape, so call sites still read as one line.

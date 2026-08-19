@@ -6,6 +6,9 @@ import { useFilesStore } from "@/stores/files";
 const props = defineProps({
   visibility: { type: String, default: "private" },
   folderId: { type: [Number, String], default: null },
+  // Restricts the file picker (e.g. "image/*" in the gallery). Drag and drop
+  // ignores it, so the server still validates what arrives.
+  accept: { type: String, default: "" },
 });
 
 const emit = defineEmits(["uploaded"]);
@@ -83,11 +86,15 @@ function onDragLeave() {
       <p class="mt-1 text-caption text-gray-500">
         {{ visibility === "family" ? "Everyone in your family will see these" : "Only you will see these" }}
       </p>
+      <p v-if="props.accept === 'image/*'" class="mt-1 text-caption text-gray-400">
+        Images only
+      </p>
 
       <input
         ref="fileInput"
         type="file"
         multiple
+        :accept="props.accept || undefined"
         class="sr-only"
         aria-label="Choose files to upload"
         @change="onSelect"

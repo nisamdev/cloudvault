@@ -47,3 +47,47 @@ export function fileIcon(file) {
 
   return { icon: "fa-file", className: "text-gray-400" };
 }
+
+/**
+ * Section heading a photo belongs under in the gallery.
+ * Today / Yesterday / This week / month / month + year, per the implementation
+ * guide's date grouping.
+ */
+export function dateGroup(value) {
+  if (!value) return "Undated";
+
+  const date = new Date(value);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayDiff = Math.round((startOfToday - startOfDate) / 86_400_000);
+
+  if (dayDiff === 0) return "Today";
+  if (dayDiff === 1) return "Yesterday";
+  if (dayDiff < 7) return "Earlier this week";
+
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    year: sameYear ? undefined : "numeric",
+  });
+}
+
+/** Groups items into [{ label, items }] preserving the incoming order. */
+export function groupByDate(items, key = "created_at") {
+  const groups = [];
+  const index = new Map();
+
+  for (const item of items) {
+    const label = dateGroup(item[key]);
+
+    if (!index.has(label)) {
+      index.set(label, { label, items: [] });
+      groups.push(index.get(label));
+    }
+
+    index.get(label).items.push(item);
+  }
+
+  return groups;
+}
