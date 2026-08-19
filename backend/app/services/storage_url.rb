@@ -12,7 +12,12 @@ module StorageUrl
   def for(attachment, expires_in: 15.minutes, disposition: "inline", filename: nil)
     return nil unless attachment&.attached?
 
-    blob = attachment.blob
+    for_blob(attachment.blob, expires_in: expires_in, disposition: disposition, filename: filename)
+  end
+
+  # Same signing, for a blob we already hold — a processed variant, for example.
+  def for_blob(blob, expires_in: 15.minutes, disposition: "inline", filename: nil)
+    return nil if blob.nil?
 
     service.url(
       blob.key,

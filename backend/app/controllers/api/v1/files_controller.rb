@@ -206,10 +206,20 @@ module Api
           payload[:text] = text.force_encoding("UTF-8").scrub("?")
           payload[:truncated] = @file.size.to_i > TEXT_PREVIEW_LIMIT
         when "image", "pdf", "video", "audio"
-          payload[:url] = StorageUrl.for(@file.attachment, expires_in: 15.minutes, disposition: "inline")
+          payload[:url] =
+            if kind == "image" && needs_conversion?(@file)
+              # No browser but Safari renders HEIC, so hand back a JPEG rendition
+              # instead of the original. Active Storage keeps the processed
+              # variant, so this cost is paid once per photo.
+              converted_preview_url(@file)
+            else
+              StorageUrl.for(@file.attachment, expires_in: 15.minutes, disposition: "inline")
+            end
+
           if kind == "image"
             payload[:width] = @file.image_width
             payload[:height] = @file.image_height
+            payload[:converted] = needs_conversion?(@file)
           end
         end
 
@@ -219,6 +229,31 @@ module Api
       private
 
       TEXT_PREVIEW_LIMIT = 512 * 1024 # 512 KB is plenty to read; more just hangs the tab.
+
+      # Formats no mainstream browser can display inline. AVIF is deliberately
+      # absent: Chrome, Firefox and Safari all render it.
+      UNDISPLAYABLE_IMAGE_TYPES = %w[image/heic image/heif image/tiff image/x-tiff].freeze
+
+      PREVIEW_LIMIT = [ 2048, 2048 ].freeze
+
+      def needs_conversion?(file)
+        UNDISPLAYABLE_IMAGE_TYPES.include?(file.mime_type.to_s.downcase)
+      end
+
+      # Renders the photo to JPEG once and serves that. Falls back to the
+      # original if conversion fails, so the client still gets something.
+      def converted_preview_url(file)
+        variant = file.attachment.variant(
+          resize_to_limit: PREVIEW_LIMIT,
+          format: :jpeg,
+          saver: { quality: 85 }
+        ).processed
+
+        StorageUrl.for_blob(variant.image.blob, expires_in: 15.minutes, disposition: "inline")
+      rescue StandardError => e
+        Rails.logger.error("[preview] conversion failed for #{file.id}: #{e.class}: #{e.message}")
+        StorageUrl.for(file.attachment, expires_in: 15.minutes, disposition: "inline")
+      end
 
       TEXT_MIME_TYPES = %w[
         application/json application/xml application/javascript

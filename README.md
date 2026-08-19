@@ -158,7 +158,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-293 backend specs and 19 frontend tests, all passing.
+298 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -202,6 +202,10 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **HEIC and TIFF previews are converted to JPEG on demand.** No mainstream browser but Safari
+  renders HEIC, so the preview would be a broken image. Active Storage keeps the rendition, so the
+  conversion is paid once per photo, and a failed conversion falls back to the original rather than
+  breaking the preview. AVIF is served as-is — browsers handle it.
 - **The browser's Content-Type is not trusted.** Chrome sends an empty string or
   `application/octet-stream` for `.heic` wherever the OS has no registration for it, which filed
   iPhone photos as documents so they never reached the gallery. Marcel re-detects from the magic

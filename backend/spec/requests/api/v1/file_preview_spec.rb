@@ -129,3 +129,65 @@ RSpec.describe "Api::V1::Files preview" do
     end
   end
 end
+
+RSpec.describe "Api::V1::Files preview conversion" do
+  let(:owner) { create(:user) }
+
+  def attach(file, bytes, type)
+    file.attachment.attach(io: StringIO.new(bytes), filename: file.name, content_type: type)
+    file
+  end
+
+  it "converts a HEIC to JPEG, because no mainstream browser renders HEIC" do
+    heic = create(:stored_file, :image, user: owner, name: "IMG_0001.heic", mime_type: "image/heic")
+    # libvips here can decode HEIC but not encode it, so the payload is JPEG
+    # bytes labelled image/heic. That is enough: this asserts the conversion
+    # decision, which is driven by the stored mime type.
+    attach(heic, Vips::Image.black(64, 64).cast("uchar").colourspace("srgb").jpegsave_buffer, "image/heic")
+
+    get "/api/v1/files/#{heic.id}/preview", headers: auth_headers_for(owner)
+
+    expect(response).to have_http_status(:ok)
+    expect(json["kind"]).to eq("image")
+    expect(json["converted"]).to be true
+    expect(json["url"]).to be_present
+  end
+
+  it "serves a JPEG unconverted" do
+    jpeg = create(:stored_file, :image, user: owner, name: "photo.jpg", mime_type: "image/jpeg")
+    attach(jpeg, Vips::Image.black(32, 32).cast("uchar").colourspace("srgb").jpegsave_buffer, "image/jpeg")
+
+    get "/api/v1/files/#{jpeg.id}/preview", headers: auth_headers_for(owner)
+
+    expect(json["converted"]).to be false
+  end
+
+  it "serves AVIF unconverted, since browsers render it" do
+    avif = create(:stored_file, :image, user: owner, name: "photo.avif", mime_type: "image/avif")
+    attach(avif, Vips::Image.black(32, 32).cast("uchar").colourspace("srgb").jpegsave_buffer, "image/avif")
+
+    get "/api/v1/files/#{avif.id}/preview", headers: auth_headers_for(owner)
+
+    expect(json["converted"]).to be false
+  end
+
+  it "converts TIFF too" do
+    tiff = create(:stored_file, :image, user: owner, name: "scan.tiff", mime_type: "image/tiff")
+    attach(tiff, Vips::Image.black(32, 32).cast("uchar").colourspace("srgb").tiffsave_buffer, "image/tiff")
+
+    get "/api/v1/files/#{tiff.id}/preview", headers: auth_headers_for(owner)
+
+    expect(json["converted"]).to be true
+  end
+
+  it "still returns a usable URL when conversion fails" do
+    broken = create(:stored_file, :image, user: owner, name: "broken.heic", mime_type: "image/heic")
+    attach(broken, "not an image at all", "image/heic")
+
+    get "/api/v1/files/#{broken.id}/preview", headers: auth_headers_for(owner)
+
+    # Falls back to the original rather than erroring the whole preview.
+    expect(response).to have_http_status(:ok)
+    expect(json["url"]).to be_present
+  end
+end
