@@ -106,26 +106,37 @@ end
 RSpec.describe "capture date ordering" do
   let(:owner) { create(:user) }
 
-  it "orders by when the photo was taken, not when it was uploaded" do
-    # Uploaded now, taken last year.
-    old_photo = create(:stored_file, :image, user: owner, name: "Holiday.jpg",
-                       taken_at: 1.year.ago, created_at: Time.current)
-    # Uploaded earlier, taken today.
-    new_photo = create(:stored_file, :image, user: owner, name: "Breakfast.jpg",
-                       taken_at: 1.hour.ago, created_at: 2.days.ago)
+  # Upload time is the default so that sorting agrees with the date filters and
+  # the gallery's date headings, which both work on upload time.
+  it "sorts by upload time by default, even when capture dates disagree" do
+    recently_uploaded = create(:stored_file, :image, user: owner, name: "Holiday.jpg",
+                               taken_at: 1.year.ago, created_at: Time.current)
+    create(:stored_file, :image, user: owner, name: "Breakfast.jpg",
+           taken_at: 1.hour.ago, created_at: 2.days.ago)
 
     names = StoredFile.images.sorted_by("newest").pluck(:name)
 
-    expect(names).to eq([ new_photo.name, old_photo.name ])
+    expect(names.first).to eq(recently_uploaded.name)
   end
 
-  it "falls back to upload time when a photo has no capture date" do
+  it "sorts by capture time when asked for it explicitly" do
+    create(:stored_file, :image, user: owner, name: "Holiday.jpg",
+           taken_at: 1.year.ago, created_at: Time.current)
+    taken_recently = create(:stored_file, :image, user: owner, name: "Breakfast.jpg",
+                            taken_at: 1.hour.ago, created_at: 2.days.ago)
+
+    names = StoredFile.images.sorted_by("taken_newest").pluck(:name)
+
+    expect(names.first).to eq(taken_recently.name)
+  end
+
+  it "falls back to upload time for photos with no capture date" do
     no_exif = create(:stored_file, :image, user: owner, name: "Screenshot.png",
                      taken_at: nil, created_at: Time.current)
     older = create(:stored_file, :image, user: owner, name: "Old.jpg",
                    taken_at: 2.days.ago, created_at: 2.days.ago)
 
-    names = StoredFile.images.sorted_by("newest").pluck(:name)
+    names = StoredFile.images.sorted_by("taken_newest").pluck(:name)
 
     expect(names).to eq([ no_exif.name, older.name ])
   end
