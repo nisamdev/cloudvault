@@ -36,6 +36,15 @@ Rails.application.routes.draw do
         resources :shares, only: %i[index create]
       end
 
+      # Phone-as-scanner. create is authenticated (desktop); the token-addressed
+      # actions are how the phone talks to us without signing in.
+      post "scans", to: "scans#create"
+      # A JWT contains dots, which Rails would otherwise read as a format
+      # extension and truncate.
+      scan_token = { token: %r{[^/]+} }
+      get  "scans/:token", to: "scans#show", as: :scan, constraints: scan_token, format: false
+      post "scans/:token", to: "scans#upload", as: :scan_upload, constraints: scan_token, format: false
+
       resources :folders, only: %i[index show create update destroy] do
         collection do
           get :trashed

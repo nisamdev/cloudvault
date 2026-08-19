@@ -72,6 +72,39 @@ class JwtService
       raise InvalidToken, e.message
     end
 
+    # Upload-only credential for the phone capture page. Carries where the
+    # documents should land so the phone needs no further input.
+    def encode_scan(user_id:, folder_id:, visibility:, expires_in:)
+      now = Time.current
+
+      JWT.encode(
+        {
+          sub: user_id,
+          typ: "scan",
+          folder_id: folder_id,
+          visibility: visibility,
+          iat: now.to_i,
+          exp: (now + expires_in).to_i,
+          jti: SecureRandom.uuid
+        },
+        secret,
+        ALGORITHM
+      )
+    end
+
+    def decode_scan(token)
+      payload, = JWT.decode(token, secret, true, algorithm: ALGORITHM, verify_expiration: true)
+
+      # Without this an access token could be replayed as a scan token.
+      raise InvalidToken, "unexpected token type" unless payload["typ"] == "scan"
+
+      payload
+    rescue JWT::ExpiredSignature
+      raise InvalidToken, "token expired"
+    rescue JWT::DecodeError => e
+      raise InvalidToken, e.message
+    end
+
     def access_ttl
       ENV.fetch("JWT_ACCESS_TTL_MINUTES", 15).to_i.minutes
     end

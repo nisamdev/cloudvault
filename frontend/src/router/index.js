@@ -26,6 +26,14 @@ const routes = [
     meta: { public: true, title: "Shared with you" },
   },
   {
+    // Phone capture page. Public: the token in the URL is the credential, and
+    // the phone is deliberately not signed in.
+    path: "/scan/:token",
+    name: "scan",
+    component: () => import("@/views/ScanView.vue"),
+    meta: { public: true, title: "Scan to CloudVault" },
+  },
+  {
     // Target of the invitation email link. Public: the recipient may not have
     // an account yet.
     path: "/invitations/:token",

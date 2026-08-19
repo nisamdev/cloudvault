@@ -8,6 +8,7 @@ import ShareModal from "@/components/files/ShareModal.vue";
 import LabelPicker from "@/components/files/LabelPicker.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
+import ScanModal from "@/components/files/ScanModal.vue";
 import FolderTree from "@/components/files/FolderTree.vue";
 import FolderRow from "@/components/files/FolderRow.vue";
 import { useDragAndDrop } from "@/composables/useDragAndDrop";
@@ -28,6 +29,7 @@ const visibility = ref("private");
 const sharingFile = ref(null);
 const previewFile = ref(null);
 const detailsFile = ref(null);
+const scanning = ref(false);
 // Ids whose thumbnail failed to load (expired URL, or never generated).
 const brokenThumbnails = reactive(new Set());
 const labellingFile = ref(null);
@@ -547,6 +549,14 @@ function onUploaded(file) {
             />
           </div>
 
+          <button
+            type="button"
+            class="rounded-base border border-gray-300 px-3 py-2 text-body font-medium text-gray-700 transition hover:bg-gray-50"
+            @click="scanning = true"
+          >
+            <i class="fas fa-qrcode mr-2" aria-hidden="true"></i>Scan
+          </button>
+
           <label for="visibility" class="sr-only">Upload visibility</label>
           <select
             id="visibility"
@@ -740,6 +750,13 @@ function onUploaded(file) {
       <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
 
       <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
+
+      <ScanModal
+        v-if="scanning"
+        :folder-id="library.currentFolderId"
+        :visibility="visibility"
+        @close="scanning = false"
+      />
       <LabelPicker v-if="labellingFile" :file="labellingFile" @close="labellingFile = null" />
     </section>
   </div>

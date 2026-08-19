@@ -142,6 +142,10 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   version history and active share links
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
+- **Scan with your phone** — the desktop shows a QR code; the phone opens a capture page with no
+  app and no sign-in, photographs each page, reorders them, and saves them as one PDF or separate
+  images into the chosen folder. Pages are straightened by EXIF orientation, capped at 2400px and
+  contrast-boosted for legibility
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
   PDFs, video, audio and text render inline; ← → step through the list, Escape closes
 - **Context menus** — right-click any file, folder, tree node, label, or empty space; full keyboard
@@ -158,7 +162,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-298 backend specs and 19 frontend tests, all passing.
+322 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -202,6 +206,11 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **The scan token is deliberately weak.** It travels in a URL, so it expires in 20 minutes and can
+  only upload — it cannot list, read or delete, and ordinary endpoints reject it because it is not
+  an access token. Losing it costs an unwanted upload, nothing more.
+- **`<input capture>` rather than `getUserMedia`.** The native camera works over plain HTTP on a
+  LAN; `getUserMedia` requires a secure context and would refuse to start on `http://192.168.x.x`.
 - **HEIC and TIFF previews are converted to JPEG on demand.** No mainstream browser but Safari
   renders HEIC, so the preview would be a broken image. Active Storage keeps the rendition, so the
   conversion is paid once per photo, and a failed conversion falls back to the original rather than

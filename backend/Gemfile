@@ -24,6 +24,10 @@ gem "zip_kit", "~> 6.3"
 gem "ruby-vips", "~> 2.2"
 # Reads EXIF: capture time, GPS coordinates and camera. Pure Ruby, no bindings.
 gem "exifr", "~> 1.4"
+# Combines scanned pages into a single PDF, and renders the QR code that opens
+# the phone capture page.
+gem "prawn", "~> 2.5"
+gem "rqrcode", "~> 3.0"
 
 # --- Background jobs --------------------------------------------------------
 gem "sidekiq", "~> 8.0"
