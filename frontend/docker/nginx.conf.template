@@ -1,0 +1,51 @@
+server {
+    listen       __PORT__;
+    listen       [::]:__PORT__;
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # Compressed responses for text assets.
+    gzip              on;
+    gzip_vary         on;
+    gzip_min_length   1024;
+    gzip_types        text/plain text/css application/javascript application/json image/svg+xml;
+
+    # Hashed build assets are immutable.
+    location /assets/ {
+        expires    1y;
+        add_header Cache-Control "public, immutable";
+        try_files  $uri =404;
+    }
+
+    # Runtime configuration is regenerated on every container start — never cache it.
+    location = /config.js {
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        expires    off;
+        try_files  $uri =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        expires    off;
+    }
+
+    # Container-level health endpoint (Railway healthcheckPath).
+    location = /healthz {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # SPA history fallback — vue-router owns the routes.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Baseline security headers. No CSP here: it belongs with the API origin
+    # config, and a wrong one silently breaks the app.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options        "DENY"    always;
+    add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+}

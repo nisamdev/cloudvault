@@ -1,0 +1,44 @@
+# CloudVault object storage.
+#
+# One S3 service definition for every environment. Locally S3_ENDPOINT points at
+# MinIO; in production it points at Cloudflare R2 or AWS S3. Same code path, so
+# presigned URLs and multipart uploads are exercised in development exactly as
+# they will be in production.
+
+test:
+  service: Disk
+  root: <%= Rails.root.join("tmp/storage") %>
+
+local:
+  service: Disk
+  root: <%= Rails.root.join("storage") %>
+
+s3:
+  service: S3
+  access_key_id: <%= ENV["S3_ACCESS_KEY_ID"] %>
+  secret_access_key: <%= ENV["S3_SECRET_ACCESS_KEY"] %>
+  region: <%= ENV.fetch("S3_REGION", "us-east-1") %>
+  bucket: <%= ENV.fetch("S3_BUCKET", "cloudvault") %>
+  endpoint: <%= ENV["S3_ENDPOINT"] %>
+  # MinIO requires path-style addressing (bucket in the path, not the hostname).
+  # R2 accepts it too; plain AWS S3 wants it false.
+  force_path_style: <%= ENV.fetch("S3_FORCE_PATH_STYLE", "true") == "true" %>
+  # Uploads go straight from the browser to storage via presigned PUT.
+  upload:
+    server_side_encryption: <%= ENV["S3_SERVER_SIDE_ENCRYPTION"].presence %>
+
+# URL-signing twin of the `s3` service above.
+#
+# The API reaches storage at an internal address (http://minio:9000 in compose,
+# a private endpoint in production), but a presigned URL is handed to a browser
+# that cannot resolve that name. SigV4 signs the Host header, so the URL cannot
+# simply be rewritten afterwards — it has to be signed for the host the browser
+# will actually use. Same bucket and credentials, different endpoint.
+s3_public:
+  service: S3
+  access_key_id: <%= ENV["S3_ACCESS_KEY_ID"] %>
+  secret_access_key: <%= ENV["S3_SECRET_ACCESS_KEY"] %>
+  region: <%= ENV.fetch("S3_REGION", "us-east-1") %>
+  bucket: <%= ENV.fetch("S3_BUCKET", "cloudvault") %>
+  endpoint: <%= ENV["S3_PUBLIC_ENDPOINT"].presence || ENV["S3_ENDPOINT"] %>
+  force_path_style: <%= ENV.fetch("S3_FORCE_PATH_STYLE", "true") == "true" %>

@@ -1,0 +1,218 @@
+# CloudVault — local development stack.
+#
+# Every service here has a Railway counterpart (see infra/railway/README.md).
+# Railway does NOT read this file; it is the local mirror of that topology.
+#
+#   docker compose up -d          start everything
+#   docker compose logs -f api    follow the API
+#   docker compose down -v        stop and wipe volumes
+#
+# Host ports (see .env) are deliberately non-default so CloudVault can run
+# alongside other local stacks:
+#   web 5273 · api 3100 · postgres 5532 · redis 6479
+#   minio 9100 (api) / 9101 (console) · mailpit 8125 (UI) / 1125 (SMTP)
+
+name: cloudvault
+
+x-api-env: &api-env
+  RAILS_ENV: ${RAILS_ENV:-development}
+  # The containers run as the host uid, which has no home directory inside the
+  # image; without this Bundler warns and falls back to a temp dir on every call.
+  HOME: /tmp
+  DATABASE_URL: postgres://${POSTGRES_USER:-cloudvault}:${POSTGRES_PASSWORD:-cloudvault_dev_password}@postgres:5432/${POSTGRES_DB:-cloudvault_development}
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+  JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-15}
+  JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-cloudvault}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-cloudvault_minio}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-cloudvault_minio_password}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  SMTP_ADDRESS: ${SMTP_ADDRESS:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  MAIL_FROM: ${MAIL_FROM:-no-reply@cloudvault.local}
+  APP_URL: ${APP_URL:-http://localhost:5173}
+  API_URL: ${API_URL:-http://localhost:3000}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:4173}
+  USER_STORAGE_QUOTA_BYTES: ${USER_STORAGE_QUOTA_BYTES:-268435456}
+  FAMILY_STORAGE_QUOTA_BYTES: ${FAMILY_STORAGE_QUOTA_BYTES:-2147483648}
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-104857600}
+  FILE_VERSIONS_KEPT: ${FILE_VERSIONS_KEPT:-3}
+  TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+  GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+
+x-api-build: &api-build
+  context: ./backend
+  target: development
+  args:
+    # Dev image keeps the development/test gem groups.
+    BUNDLE_WITHOUT: ""
+
+services:
+  # ------------------------------------------------------------- data stores
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cloudvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cloudvault_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudvault_development}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cloudvault} -d ${POSTGRES_DB:-cloudvault_development}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # S3-compatible object storage. Production swaps this for Cloudflare R2 or
+  # AWS S3 by changing S3_* env vars only — no application code changes.
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-cloudvault_minio}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-cloudvault_minio_password}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Creates the bucket once, then exits. Not a long-running service.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      S3_BUCKET: ${S3_BUCKET:-cloudvault}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-cloudvault_minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-cloudvault_minio_password}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$S3_ACCESS_KEY_ID $$S3_SECRET_ACCESS_KEY &&
+      mc mb --ignore-existing local/$$S3_BUCKET &&
+      mc anonymous set download local/$$S3_BUCKET/public &&
+      echo 'bucket ready: '$$S3_BUCKET
+      "
+    restart: "no"
+
+  # Catches outbound mail (family invites, share notifications).
+  # UI at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- application
+  api:
+    build: *api-build
+    # Generators write into the bind mount; running as the host user keeps those
+    # files editable instead of root-owned.
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    command: ["sh", "-c", "./bin/rails server -b 0.0.0.0 -p ${PORT:-3000}"]
+    environment:
+      <<: *api-env
+      # Only the API runs migrations, so it cannot race the worker.
+      RUN_MIGRATIONS: "true"
+      ENSURE_BUCKET: "true"
+      RUN_SIDEKIQ_IN_PROCESS: "false"
+    ports:
+      - "${API_PORT:-3000}:3000"
+    volumes:
+      - ./backend:/app
+      # Named volumes keep container-built gems/tmp out of the host tree.
+      - bundle_cache:/usr/local/bundle
+      - api_tmp:/app/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/up"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build: *api-build
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    environment:
+      <<: *api-env
+      RUN_MIGRATIONS: "false"
+      ENSURE_BUCKET: "false"
+      SIDEKIQ_CONCURRENCY: ${SIDEKIQ_CONCURRENCY:-5}
+    volumes:
+      - ./backend:/app
+      - bundle_cache:/usr/local/bundle
+      - api_tmp:/app/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      target: development
+    command: ["sh", "-c", "npm run dev -- --host 0.0.0.0 --port 5173"]
+    environment:
+      # Dev server proxies /api to the api service (see vite.config.js).
+      VITE_API_URL: ${API_URL:-http://localhost:3000}
+      VITE_PROXY_TARGET: http://api:3000
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      # Keep the image's node_modules; don't let the host tree shadow it.
+      - /app/node_modules
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  bundle_cache:
+  api_tmp:

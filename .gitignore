@@ -1,0 +1,30 @@
+# Secrets — .env.example is the committed template.
+.env
+.env.*
+!.env.example
+
+# Backend
+/backend/log/*
+/backend/tmp/*
+!/backend/tmp/.keep
+/backend/storage/*
+!/backend/storage/.keep
+/backend/.bundle
+/backend/vendor/bundle
+/backend/coverage
+/backend/config/master.key
+
+# Frontend
+/frontend/node_modules
+/frontend/dist
+/frontend/.vite
+/frontend/coverage
+# Generated at container start from the environment.
+/frontend/public/config.js
+
+# Editors / OS
+.DS_Store
+*.swp
+.idea/
+# Windows/WSL alternate data streams from copied files
+*:Zone.Identifier

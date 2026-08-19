@@ -1,0 +1,10 @@
+You've been invited to <%= @family.name %>
+
+<%= @inviter.full_name || @inviter.email %> has invited you to join their family
+vault on CloudVault as <%= @invitation.role %>.
+
+Accept the invitation:
+<%= @accept_url %>
+
+This invitation expires on <%= @invitation.expires_at.strftime("%d %B %Y") %>.
+If you weren't expecting it, you can ignore this email.

@@ -1,0 +1,33 @@
+# CloudVault database configuration.
+#
+# Every environment reads DATABASE_URL. That is the whole point: compose sets it
+# to the postgres service, Railway sets it to ${{Postgres.DATABASE_URL}}, and no
+# host, user or password is ever written into this file.
+#
+# The `database:` keys below are fallbacks used only when DATABASE_URL is absent
+# (e.g. running `bin/rails` directly on a workstation with a local Postgres).
+
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+  # Railway's managed Postgres sits behind a proxy that can be slow to accept
+  # the first connection after a cold start.
+  connect_timeout: <%= ENV.fetch("DB_CONNECT_TIMEOUT", 10) %>
+  variables:
+    statement_timeout: <%= ENV.fetch("DB_STATEMENT_TIMEOUT_MS", 15_000) %>
+
+development:
+  <<: *default
+  url: <%= ENV["DATABASE_URL"] %>
+  database: cloudvault_development
+
+test:
+  <<: *default
+  # Never let a stray DATABASE_URL point the suite at a real database.
+  url: <%= ENV["TEST_DATABASE_URL"] %>
+  database: cloudvault_test
+
+production:
+  <<: *default
+  url: <%= ENV["DATABASE_URL"] %>

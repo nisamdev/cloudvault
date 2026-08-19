@@ -1,0 +1,7 @@
+# Queues are listed highest priority first.
+:concurrency: <%= ENV.fetch("SIDEKIQ_CONCURRENCY", 5).to_i %>
+:queues:
+  - [critical, 4]     # auth mail, invitations
+  - [default, 2]      # general
+  - [thumbnails, 2]   # image derivatives
+  - [maintenance, 1]  # trash cleanup, version pruning

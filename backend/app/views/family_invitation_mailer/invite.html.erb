@@ -1,0 +1,20 @@
+<h1 style="font-size:24px;font-weight:700;color:#1F2937;margin:0 0 16px;">
+  You've been invited to <%= @family.name %>
+</h1>
+
+<p style="font-size:14px;line-height:1.5;margin:0 0 16px;">
+  <%= @inviter.full_name || @inviter.email %> has invited you to join their family
+  vault on CloudVault as <strong><%= @invitation.role %></strong>.
+</p>
+
+<p style="margin:24px 0;">
+  <a href="<%= @accept_url %>"
+     style="display:inline-block;background:#4F46E5;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:600;font-size:14px;">
+    Accept invitation
+  </a>
+</p>
+
+<p style="font-size:12px;color:#6B7280;line-height:1.4;margin:0;">
+  This invitation expires on <%= @invitation.expires_at.strftime("%d %B %Y") %>.
+  If you weren't expecting it, you can ignore this email.
+</p>

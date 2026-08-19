@@ -1,0 +1,56 @@
+Rails.application.routes.draw do
+  # Platform health probe (Railway healthcheckPath, compose healthcheck).
+  get "up" => "rails/health#show", as: :rails_health_check
+
+  namespace :api do
+    namespace :v1 do
+      # Also proves Postgres, Redis and storage are reachable from this process.
+      get "health", to: "health#show"
+
+      # --- Session lifecycle -------------------------------------------------
+      post "auth/register", to: "auth#register"
+      post "auth/login",    to: "auth#login"
+      post "auth/refresh",  to: "auth#refresh"
+      post "auth/logout",   to: "auth#logout"
+      get  "auth/me",       to: "auth#me"
+
+      # --- Families ----------------------------------------------------------
+      resources :families, only: %i[create show update] do
+        resources :invitations, only: %i[create destroy]
+      end
+
+      # Invitation acceptance is addressed by token, not by id: the recipient
+      # may not have an account yet when they follow the link.
+      get  "invitations/:token",        to: "invitations#show",   as: :invitation
+      post "invitations/:token/accept", to: "invitations#accept", as: :accept_invitation
+
+      # --- Files and images --------------------------------------------------
+      resources :files, only: %i[index show create update destroy] do
+        member do
+          get  :download
+          get  :preview
+          post :restore
+        end
+        # Managing links for a file (owner side).
+        resources :shares, only: %i[index create]
+      end
+
+      resources :folders, only: %i[index show create update destroy] do
+        member do
+          # Two steps: the SPA asks for a signed URL, the browser then navigates
+          # to it so the ZIP downloads like any other file.
+          post :download_url
+          get  :download
+        end
+      end
+      resources :labels, only: %i[index create update destroy]
+
+      resources :shares, only: %i[destroy]
+
+      # Public share access — the token is the credential, so these are
+      # addressed by token and reachable without a session.
+      get  "shares/:token",          to: "shares#show",     as: :public_share
+      post "shares/:token/download", to: "shares#download", as: :public_share_download
+    end
+  end
+end
