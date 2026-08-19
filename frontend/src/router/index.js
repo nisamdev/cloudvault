@@ -58,6 +58,12 @@ const routes = [
         meta: { title: "My Files" },
       },
       {
+        path: "recent",
+        name: "recent",
+        component: () => import("@/views/RecentView.vue"),
+        meta: { title: "Recent" },
+      },
+      {
         path: "images",
         name: "images",
         component: () => import("@/views/ImagesView.vue"),

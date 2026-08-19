@@ -306,3 +306,54 @@ RSpec.describe "Links point back to the origin the browser used" do
     expect(json["share"]["url"]).to start_with("https://tasty-pandas.trycloudflare.com/share/")
   end
 end
+
+RSpec.describe "Api::V1::Scans status polling" do
+  let(:owner) { create(:user) }
+
+  def page_upload
+    file = Tempfile.new([ "page", ".jpg" ], binmode: true)
+    file.write(Vips::Image.black(200, 260).add(200).cast("uchar").colourspace("srgb").jpegsave_buffer)
+    file.rewind
+    Rack::Test::UploadedFile.new(file.path, "image/jpeg", original_filename: "page.jpg")
+  end
+
+  def new_token
+    post "/api/v1/scans", headers: auth_headers_for(owner), as: :json
+    json["url"].split("/scan/").last
+  end
+
+  it "reports nothing before the phone has uploaded" do
+    token = new_token
+
+    get "/api/v1/scans/#{token}/status", headers: auth_headers_for(owner)
+
+    expect(response).to have_http_status(:ok)
+    expect(json["receipt"]).to be_nil
+    expect(json["expired"]).to be false
+  end
+
+  it "reports what arrived once the phone has finished" do
+    token = new_token
+    post "/api/v1/scans/#{token}", params: { pages: [ page_upload ], name: "Licence" }
+
+    get "/api/v1/scans/#{token}/status", headers: auth_headers_for(owner)
+
+    receipt = json["receipt"]
+    expect(receipt).to be_present
+    expect(receipt["files"].first["name"]).to eq("Licence.pdf")
+    expect(receipt["completed_at"]).to be_present
+  end
+
+  it "stores the scan even if the receipt cannot be written" do
+    token = new_token
+    allow(Sidekiq).to receive(:redis).and_raise(Redis::CannotConnectError)
+
+    # The receipt only drives a progress dialog; losing it must not lose a scan
+    # that has already been stored.
+    expect {
+      post "/api/v1/scans/#{token}", params: { pages: [ page_upload ] }
+    }.to change(StoredFile, :count).by(1)
+
+    expect(response).to have_http_status(:created)
+  end
+end

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import api from "@/api/client";
 import { useLibraryStore } from "@/stores/library";
 
@@ -7,7 +7,7 @@ const props = defineProps({
   folderId: { type: [Number, String], default: null },
   visibility: { type: String, default: "private" },
 });
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "uploaded"]);
 
 const library = useLibraryStore();
 
@@ -16,6 +16,8 @@ const loading = ref(true);
 const error = ref("");
 const copied = ref(false);
 const closeButton = ref(null);
+const received = ref(null);
+let poller = null;
 
 async function createSession() {
   loading.value = true;
@@ -27,11 +29,44 @@ async function createSession() {
       visibility: props.visibility,
     });
     session.value = data;
+    startPolling();
   } catch (e) {
     error.value = e.userMessage;
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * The phone and the desktop share no connection, so the desktop asks whether
+ * anything arrived. Without this the QR code sits there after the phone has
+ * finished and the new file never appears until a manual reload.
+ */
+function startPolling() {
+  const token = session.value.url.split("/scan/").pop();
+
+  poller = setInterval(async () => {
+    try {
+      const { data } = await api.get(`/scans/${token}/status`);
+
+      if (data.receipt) {
+        received.value = data.receipt;
+        stopPolling();
+        // Tell the list to refresh so the scan is actually visible behind us.
+        emit("uploaded", data.receipt);
+      } else if (data.expired) {
+        stopPolling();
+        error.value = "This link has expired. Close and start a new scan.";
+      }
+    } catch {
+      // A blip should not kill the dialog; the next tick tries again.
+    }
+  }, 2500);
+}
+
+function stopPolling() {
+  if (poller) clearInterval(poller);
+  poller = null;
 }
 
 async function copyLink() {
@@ -52,6 +87,11 @@ onMounted(() => {
   createSession();
   document.addEventListener("keydown", onKeydown);
   closeButton.value?.focus();
+});
+
+onBeforeUnmount(() => {
+  stopPolling();
+  document.removeEventListener("keydown", onKeydown);
 });
 </script>
 
@@ -93,9 +133,44 @@ onMounted(() => {
           {{ error }}
         </p>
 
+        <!-- The phone finished: stop showing a code nobody needs any more.
+             v-else-if keeps this in the loading/error chain; a bare v-if would
+             render the QR branch before the session exists. -->
+        <template v-else-if="received">
+          <i class="fas fa-circle-check text-5xl text-success-500" aria-hidden="true"></i>
+          <h3 class="mt-4 text-h3 font-semibold text-gray-800">Scan received</h3>
+          <ul class="mt-3 space-y-1">
+            <li v-for="file in received.files" :key="file.id" class="text-body text-gray-600">
+              {{ file.name }}
+            </li>
+          </ul>
+
+          <div class="mt-6 flex gap-3">
+            <button
+              type="button"
+              class="flex-1 rounded-base border border-gray-300 py-2 font-medium text-gray-700 hover:bg-gray-50"
+              @click="received = null; createSession()"
+            >
+              Scan another
+            </button>
+            <button
+              type="button"
+              class="flex-1 rounded-base gradient-main py-2 font-semibold text-white"
+              @click="emit('close')"
+            >
+              Done
+            </button>
+          </div>
+        </template>
+
         <template v-else>
           <!-- Rendered server-side as SVG, so it stays sharp and needs no JS lib -->
           <div class="mx-auto w-56" v-html="session.qr_svg"></div>
+
+          <p class="mt-3 flex items-center justify-center gap-2 text-caption text-gray-400">
+            <i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i>
+            Waiting for your phone…
+          </p>
 
           <p class="mt-4 text-body-sm text-gray-600">
             Saves to <strong>{{ library.currentFolder?.name ?? "Top level" }}</strong>

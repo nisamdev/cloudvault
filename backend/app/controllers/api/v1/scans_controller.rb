@@ -10,7 +10,7 @@ module Api
     class ScansController < BaseController
       allow_unauthenticated :show, :upload
 
-      before_action :load_session, only: %i[show upload]
+      before_action :load_session, only: %i[show upload status]
 
       # POST /api/v1/scans — desktop asks for a link to open on the phone
       def create
@@ -51,6 +51,15 @@ module Api
         }
       end
 
+      # GET /api/v1/scans/:token/status — polled by the desktop while the QR is up
+      def status
+        render json: {
+          expires_at: @session.expires_at,
+          expired: @session.expires_at.past?,
+          receipt: @session.receipt
+        }
+      end
+
       # POST /api/v1/scans/:token — the captured pages
       #
       # Params: pages[] (files), mode ("pdf" | "images"), style ("document" | "colour"), name
@@ -72,8 +81,13 @@ module Api
                    store_as_pdf(processed)
                  end
 
+        files = Array(stored)
+        # Leaves a receipt the desktop polls for, so the QR dialog knows when
+        # the phone has finished.
+        @session.record_upload(files)
+
         render json: {
-          files: Array(stored).map { |file| { id: file.id, name: file.name, size: file.size } },
+          files: files.map { |file| { id: file.id, name: file.name, size: file.size } },
           page_count: processed.size
         }, status: :created
       rescue FileUploader::QuotaExceeded => e

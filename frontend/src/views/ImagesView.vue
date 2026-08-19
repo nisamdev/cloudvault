@@ -5,7 +5,7 @@ import { useFilesStore } from "@/stores/files";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useDialog } from "@/composables/useDialog";
 import UploadZone from "@/components/files/UploadZone.vue";
-import GalleryFilters from "@/components/files/GalleryFilters.vue";
+import FilterBar from "@/components/files/FilterBar.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
@@ -167,7 +167,7 @@ function photoMenu(event, file) {
       @uploaded="load"
     />
 
-    <GalleryFilters v-model="filters" @change="load" />
+    <FilterBar v-model="filters" photo-filters capture-sort @change="load" />
 
     <p
       v-if="filesStore.error"

@@ -6,6 +6,10 @@ import { useLibraryStore } from "@/stores/library";
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
+  // Shape and location only mean something for photos.
+  photoFilters: { type: Boolean, default: false },
+  // Capture-date sorting likewise.
+  captureSort: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:modelValue", "change"]);
 
@@ -18,15 +22,22 @@ const expanded = ref(false);
 // the last preset while nothing is actually filtered.
 const preset = ref("");
 
-const SORTS = [
+const BASE_SORTS = [
   { value: "newest", label: "Newest uploaded" },
   { value: "oldest", label: "Oldest uploaded" },
-  { value: "taken_newest", label: "Newest taken" },
-  { value: "taken_oldest", label: "Oldest taken" },
   { value: "name", label: "Name (A–Z)" },
   { value: "largest", label: "Largest first" },
   { value: "smallest", label: "Smallest first" },
 ];
+
+const CAPTURE_SORTS = [
+  { value: "taken_newest", label: "Newest taken" },
+  { value: "taken_oldest", label: "Oldest taken" },
+];
+
+const SORTS = computed(() =>
+  props.captureSort ? [...BASE_SORTS.slice(0, 2), ...CAPTURE_SORTS, ...BASE_SORTS.slice(2)] : BASE_SORTS,
+);
 
 const ORIENTATIONS = [
   { value: "", label: "Any shape" },
@@ -274,7 +285,7 @@ function clearAll() {
         </select>
       </div>
 
-      <div>
+      <div v-if="photoFilters">
         <label for="gallery-orientation" class="mb-1 block text-label font-medium text-gray-600">
           Shape
         </label>
@@ -290,7 +301,7 @@ function clearAll() {
         </select>
       </div>
 
-      <div>
+      <div v-if="photoFilters">
         <label for="gallery-location" class="mb-1 block text-label font-medium text-gray-600">
           Location
         </label>

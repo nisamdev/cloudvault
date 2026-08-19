@@ -19,6 +19,7 @@ watch(() => router.currentRoute.value.fullPath, () => {
 
 const navItems = [
   { name: "dashboard", label: "My Files", icon: "fa-folder" },
+  { name: "recent", label: "Recent", icon: "fa-clock-rotate-left" },
   { name: "images", label: "Photos", icon: "fa-image" },
   { name: "shared", label: "Shared", icon: "fa-share-nodes" },
   { name: "trash", label: "Trash", icon: "fa-trash" },

@@ -44,6 +44,7 @@ Rails.application.routes.draw do
       scan_token = { token: %r{[^/]+} }
       get  "scans/:token", to: "scans#show", as: :scan, constraints: scan_token, format: false
       post "scans/:token", to: "scans#upload", as: :scan_upload, constraints: scan_token, format: false
+      get  "scans/:token/status", to: "scans#status", as: :scan_status, constraints: scan_token, format: false
 
       resources :folders, only: %i[index show create update destroy] do
         collection do

@@ -157,6 +157,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Details panel** — every date (uploaded, taken, modified, last opened, purge date), dimensions,
   megapixels, camera, coordinates with a map link, folder path, labels, visibility, checksum,
   version history and active share links
+- **Recent** — everything added lately, across every folder, grouped by day
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
 - **Scan with your phone** — the desktop shows a QR code; the phone opens a capture page with no
@@ -179,7 +180,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-329 backend specs and 19 frontend tests, all passing.
+332 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -223,6 +224,9 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **The scan dialog polls for a receipt.** The phone and the desktop share no connection, so the
+  phone leaves a short-lived note in Redis and the desktop asks for it. Without that the QR code sat
+  there after the phone had finished. A failed receipt write never fails the upload itself.
 - **Links are built from the request's origin**, not from `APP_URL`. A QR code containing
   `localhost` cannot be scanned from a phone, and a share link created through a tunnel has to be
   reachable by whoever receives it. `APP_URL` remains the fallback, which is all a mailer has.

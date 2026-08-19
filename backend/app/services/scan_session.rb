@@ -10,6 +10,9 @@ class ScanSession
   class InvalidToken < StandardError; end
 
   DEFAULT_TTL = 20.minutes
+  # Outlives the token slightly, so a desktop polling as it expires still sees
+  # what arrived.
+  RECEIPT_TTL = 30.minutes
   SCOPE = "scan"
 
   attr_reader :user, :folder_id, :visibility, :expires_at
@@ -25,7 +28,7 @@ class ScanSession
     )
 
     new(user: user, folder_id: folder_id, visibility: visibility, expires_at: expires_at,
-        token: token, base_url: base_url)
+        token: token, base_url: base_url, jti: JwtService.decode_scan(token)["jti"])
   end
 
   def self.from_token(token)
@@ -38,11 +41,12 @@ class ScanSession
       folder_id: payload["folder_id"],
       visibility: payload["visibility"].presence || "private",
       expires_at: Time.zone.at(payload["exp"]),
-      token: token
+      token: token,
+      jti: payload["jti"]
     )
   end
 
-  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private", base_url: nil)
+  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private", base_url: nil, jti: nil)
     @user = user
     @folder_id = folder_id
     @visibility = visibility
@@ -50,6 +54,40 @@ class ScanSession
     @token = token
     # The QR code is scanned by a phone, which cannot reach "localhost".
     @base_url = base_url.presence || Rails.configuration.x.app_url
+    @jti = jti
+  end
+
+  # The desktop cannot see what the phone did, so the phone leaves a receipt and
+  # the desktop polls for it. Redis rather than a table: short-lived scratch
+  # state that should expire along with the token.
+  def record_upload(files)
+    return if @jti.blank?
+
+    payload = {
+      completed_at: Time.current.iso8601,
+      files: files.map { |f| { id: f.id, name: f.name, size: f.size } }
+    }
+
+    # to_i: the Redis client rejects an ActiveSupport::Duration.
+    Sidekiq.redis { |redis| redis.set(receipt_key, payload.to_json, ex: RECEIPT_TTL.to_i) }
+  rescue StandardError => e
+    # The receipt only drives a progress dialog. Losing it must never fail an
+    # upload that has already been stored.
+    Rails.logger.error("[scan] could not record receipt: #{e.class}: #{e.message}")
+  end
+
+  def receipt
+    return nil if @jti.blank?
+
+    raw = Sidekiq.redis { |redis| redis.get(receipt_key) }
+    raw.present? ? JSON.parse(raw) : nil
+  rescue JSON::ParserError, StandardError => e
+    Rails.logger.warn("[scan] could not read receipt: #{e.class}")
+    nil
+  end
+
+  def receipt_key
+    "scan:receipt:#{@jti}"
   end
 
   def url

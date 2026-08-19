@@ -11,6 +11,7 @@ import FileDetails from "@/components/files/FileDetails.vue";
 import ScanModal from "@/components/files/ScanModal.vue";
 import FolderTree from "@/components/files/FolderTree.vue";
 import FolderRow from "@/components/files/FolderRow.vue";
+import FilterBar from "@/components/files/FilterBar.vue";
 import { useDragAndDrop } from "@/composables/useDragAndDrop";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useDialog } from "@/composables/useDialog";
@@ -34,6 +35,16 @@ const scanning = ref(false);
 const brokenThumbnails = reactive(new Set());
 const labellingFile = ref(null);
 const showNewFolder = ref(false);
+const refreshing = ref(false);
+
+const filters = ref({
+  sort: "newest",
+  owner_id: "",
+  visibility: "",
+  date_from: "",
+  date_to: "",
+  label_ids: [],
+});
 const newFolderName = ref("");
 let searchTimer = null;
 
@@ -44,7 +55,14 @@ const searching = computed(() => search.value.trim().length > 0);
 // A label filter is the same kind of cross-cutting view: "show me everything
 // tagged Taxes", not "everything tagged Taxes in this one folder".
 const filteringByLabel = computed(() => library.selectedLabelIds.length > 0);
-const ignoreFolder = computed(() => searching.value || filteringByLabel.value);
+const barFiltersActive = computed(() => {
+  const f = filters.value;
+  return Boolean(f.owner_id || f.visibility || f.date_from || f.date_to || f.label_ids.length);
+});
+
+const ignoreFolder = computed(
+  () => searching.value || filteringByLabel.value || barFiltersActive.value,
+);
 
 // Folders shown inline above the files, like Drive. Hidden while searching or
 // filtering, where results deliberately span the whole tree.
@@ -73,15 +91,29 @@ onMounted(async () => {
 });
 
 function load() {
+  const { label_ids: barLabels, ...rest } = filters.value;
+
   filesStore.fetchFiles({
     // Documents only — photos have their own gallery, as the docs specify
     // ("Files Section" and "Images Section"). Searching still spans both.
     fileType: searching.value ? null : "file",
     // undefined = every folder; "" = the root only.
     folderId: ignoreFolder.value ? undefined : (library.currentFolderId ?? ""),
-    labelIds: library.selectedLabelIds,
+    // Labels can come from the sidebar or the filter bar; either should work.
+    labelIds: library.selectedLabelIds.length ? library.selectedLabelIds : barLabels,
     q: search.value.trim(),
+    filters: rest,
   });
+}
+
+/** Refetches everything on screen — the list, the folder tree and the labels. */
+async function refresh() {
+  refreshing.value = true;
+  try {
+    await Promise.all([library.fetchFolders(), library.fetchLabels(), load()]);
+  } finally {
+    refreshing.value = false;
+  }
 }
 
 function onSearch() {
@@ -551,6 +583,16 @@ function onUploaded(file) {
 
           <button
             type="button"
+            :disabled="refreshing"
+            class="rounded-base border border-gray-300 px-3 py-2 text-body font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+            aria-label="Refresh"
+            @click="refresh"
+          >
+            <i :class="['fas fa-rotate-right', refreshing ? 'fa-spin' : '']" aria-hidden="true"></i>
+          </button>
+
+          <button
+            type="button"
             class="rounded-base border border-gray-300 px-3 py-2 text-body font-medium text-gray-700 transition hover:bg-gray-50"
             @click="scanning = true"
           >
@@ -568,6 +610,8 @@ function onUploaded(file) {
           </select>
         </div>
       </header>
+
+      <FilterBar v-model="filters" class="mb-4" @change="load" />
 
       <UploadZone
         :visibility="visibility"
@@ -755,6 +799,7 @@ function onUploaded(file) {
         v-if="scanning"
         :folder-id="library.currentFolderId"
         :visibility="visibility"
+        @uploaded="load(); library.fetchFolders()"
         @close="scanning = false"
       />
       <LabelPicker v-if="labellingFile" :file="labellingFile" @close="labellingFile = null" />
