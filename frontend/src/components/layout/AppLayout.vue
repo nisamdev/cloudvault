@@ -3,6 +3,7 @@ import { ref, watch } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { formatFileSize } from "@/utils/formatting";
+import AppDialog from "@/components/ui/AppDialog.vue";
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -139,6 +140,9 @@ async function handleLogout() {
       <main id="main-content" class="flex-1 p-4 md:p-6">
         <RouterView />
       </main>
+
+      <!-- Mounted once for every screen inside the app shell. -->
+      <AppDialog />
     </div>
   </div>
 </template>

@@ -11,6 +11,7 @@ import FolderTree from "@/components/files/FolderTree.vue";
 import FolderRow from "@/components/files/FolderRow.vue";
 import { useDragAndDrop } from "@/composables/useDragAndDrop";
 import { useContextMenu } from "@/composables/useContextMenu";
+import { useDialog } from "@/composables/useDialog";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import { formatFileSize, formatRelativeDate, fileIcon } from "@/utils/formatting";
 
@@ -19,6 +20,7 @@ const filesStore = useFilesStore();
 const library = useLibraryStore();
 const { dragging, dropTargetId, startDrag, endDrag, onDragOver, onDragLeave } = useDragAndDrop();
 const contextMenu = useContextMenu();
+const dialog = useDialog();
 
 const search = ref("");
 const visibility = ref("private");
@@ -120,11 +122,13 @@ async function createFolder() {
 
 /* ------------------------------------------------------------------ menus */
 
-// Renaming happens through a prompt rather than a bespoke dialog: it keeps the
-// menu action to one step, and the inline editor on folder rows covers the
-// nicer path.
 async function promptRenameFile(file) {
-  const name = window.prompt("Rename file", file.name)?.trim();
+  const name = await dialog.prompt({
+    title: "Rename file",
+    label: "File name",
+    value: file.name,
+    confirmLabel: "Rename",
+  });
   if (!name || name === file.name) return;
 
   try {
@@ -135,14 +139,24 @@ async function promptRenameFile(file) {
 }
 
 async function promptRenameFolder(folder) {
-  const name = window.prompt("Rename folder", folder.name)?.trim();
+  const name = await dialog.prompt({
+    title: "Rename folder",
+    label: "Folder name",
+    value: folder.name,
+    confirmLabel: "Rename",
+  });
   if (!name || name === folder.name) return;
 
   await renameFolder({ folder, name });
 }
 
 async function promptNewSubfolder(folder) {
-  const name = window.prompt(`New folder inside "${folder.name}"`)?.trim();
+  const name = await dialog.prompt({
+    title: `New folder inside "${folder.name}"`,
+    label: "Folder name",
+    placeholder: "e.g. Receipts",
+    confirmLabel: "Create",
+  });
   if (!name) return;
 
   try {
@@ -236,7 +250,12 @@ function labelMenu(event, label) {
         label: "Rename…",
         icon: "fa-pen",
         action: async () => {
-          const name = window.prompt("Rename label", label.name)?.trim();
+          const name = await dialog.prompt({
+            title: "Rename label",
+            label: "Label name",
+            value: label.name,
+            confirmLabel: "Rename",
+          });
           if (!name || name === label.name) return;
           try {
             await library.renameLabel(label, name);
@@ -249,7 +268,14 @@ function labelMenu(event, label) {
       {
         label: "Delete label", icon: "fa-trash", danger: true,
         action: async () => {
-          if (!window.confirm(`Delete the label "${label.name}"? Files keep their contents.`)) return;
+          const ok = await dialog.confirm({
+            title: `Delete "${label.name}"?`,
+            message: "The label is removed from every file. The files themselves are untouched.",
+            confirmLabel: "Delete label",
+            danger: true,
+          });
+          if (!ok) return;
+
           await library.deleteLabel(label);
           load();
         },
@@ -309,17 +335,30 @@ async function renameFolder({ folder, name }) {
 }
 
 async function deleteFolder(folder) {
-  const message = folder.file_count
-    ? `Move "${folder.name}" and its ${folder.file_count} file(s) to trash?`
-    : `Move "${folder.name}" to trash?`;
-  if (!window.confirm(message)) return;
+  const ok = await dialog.confirm({
+    title: `Move "${folder.name}" to trash?`,
+    message: folder.file_count
+      ? `Everything inside goes with it — ${folder.file_count} ${folder.file_count === 1 ? "file" : "files"} and any subfolders.`
+      : "Any subfolders go with it.",
+    detail: "You can restore the whole folder from Trash for 30 days.",
+    confirmLabel: "Move to trash",
+    danger: true,
+  });
+  if (!ok) return;
 
   await library.deleteFolder(folder);
   load();
 }
 
 async function onTrash(file) {
-  if (!window.confirm(`Move "${file.name}" to trash?`)) return;
+  const ok = await dialog.confirm({
+    title: `Move "${file.name}" to trash?`,
+    message: "You can restore it from Trash for 30 days.",
+    confirmLabel: "Move to trash",
+    danger: true,
+  });
+  if (!ok) return;
+
   await filesStore.trash(file);
   library.fetchFolders();
 }

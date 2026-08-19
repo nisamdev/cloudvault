@@ -192,6 +192,9 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **Confirmations and prompts are in-app dialogs**, not `window.confirm` / `window.prompt`: the
+  native ones cannot be styled, are inconsistent across browsers, and block the event loop.
+  `useDialog()` keeps the promise-based call shape, so call sites still read as one line.
 - **Drag state lives in a shared composable**, not in the dragged component: a drag starts in the
   listing and often ends in the sidebar, and `dataTransfer` cannot be read during `dragover` —
   exactly when the drop target has to decide whether to accept.

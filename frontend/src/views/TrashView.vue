@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useFilesStore } from "@/stores/files";
 import { useLibraryStore } from "@/stores/library";
+import { useDialog } from "@/composables/useDialog";
 import { formatFileSize, fileIcon } from "@/utils/formatting";
 
 const filesStore = useFilesStore();
 const library = useLibraryStore();
+const dialog = useDialog();
 
 const busy = ref(false);
 const error = ref("");
@@ -42,6 +44,16 @@ function countdownLabel(item) {
 }
 
 async function restoreFile(file) {
+  const ok = await dialog.confirm({
+    title: `Restore "${file.name}"?`,
+    message: "It goes back to My Files.",
+    // A file whose folder is gone reappears at the top level, so say so rather
+    // than letting the user hunt for it.
+    detail: file.folder ? undefined : "It will appear at the top level.",
+    confirmLabel: "Restore",
+  });
+  if (!ok) return;
+
   try {
     await filesStore.restore(file);
   } catch (e) {
@@ -50,6 +62,16 @@ async function restoreFile(file) {
 }
 
 async function restoreFolder(folder) {
+  const ok = await dialog.confirm({
+    title: `Restore "${folder.name}"?`,
+    message: folder.file_count
+      ? `The folder and its ${folder.file_count} ${folder.file_count === 1 ? "file" : "files"} come back.`
+      : "The folder comes back.",
+    detail: "If its parent folder is still in the trash, it returns to the top level.",
+    confirmLabel: "Restore",
+  });
+  if (!ok) return;
+
   try {
     await library.restoreFolder(folder);
     load();
@@ -59,7 +81,14 @@ async function restoreFolder(folder) {
 }
 
 async function purgeFile(file) {
-  if (!window.confirm(`Permanently delete "${file.name}"? This cannot be undone.`)) return;
+  const ok = await dialog.confirm({
+    title: `Permanently delete "${file.name}"?`,
+    message: "This cannot be undone.",
+    detail: `${formatFileSize(file.size)} will be returned to your storage.`,
+    confirmLabel: "Delete forever",
+    danger: true,
+  });
+  if (!ok) return;
 
   try {
     await filesStore.purge(file);
@@ -71,7 +100,15 @@ async function purgeFile(file) {
 async function emptyTrash() {
   const count = filesStore.items.length;
   if (!count) return;
-  if (!window.confirm(`Permanently delete ${count} ${count === 1 ? "item" : "items"}? This cannot be undone.`)) return;
+
+  const ok = await dialog.confirm({
+    title: `Empty the trash?`,
+    message: `${count} ${count === 1 ? "item" : "items"} will be permanently deleted. This cannot be undone.`,
+    detail: reclaimable.value > 0 ? `${formatFileSize(reclaimable.value)} will be returned to your storage.` : undefined,
+    confirmLabel: "Delete everything",
+    danger: true,
+  });
+  if (!ok) return;
 
   busy.value = true;
   error.value = "";
