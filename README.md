@@ -132,8 +132,12 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   cross-cutting filter
 - **Photos** — responsive gallery grouped by date (Today / Yesterday / Earlier this week / month),
   lazy-loaded thumbnails, infinite scroll, hover overlay, and the shared lightbox with ← → paging.
-  Filter by date range, uploader, visibility, shape (landscape/portrait/square) and label; sort by
-  date, name or size
+  Filter by date (including Today), uploader, visibility, shape, label and whether the photo carries
+  a location; sort by date, name or size. Active filters show as removable chips with an
+  "N of M match" count
+- **EXIF** — capture date, GPS coordinates and camera are read on upload; the gallery groups and
+  sorts by when a photo was *taken*, falling back to upload time. The preview links coordinates to
+  a map
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
@@ -152,7 +156,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-266 backend specs and 19 frontend tests, all passing.
+277 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -196,6 +200,13 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **EXIF is best-effort.** It is absent from screenshots and PNGs, and messaging apps strip it, so
+  every failure path returns nothing rather than raising. Cameras with a dead clock battery report
+  1970-era dates, which are rejected. EXIF carries no timezone, so times are read as UTC rather
+  than inventing an offset.
+- **Date filters resolve in the viewer's timezone** (`users.timezone`), because the gallery's
+  "Today" heading uses the browser's clock — interpreting the filter in UTC would disagree with the
+  heading for anyone east of Greenwich.
 - **Files and Photos are separate listings**, as the docs specify — documents in My Files, images in
   the gallery. Search deliberately spans both, since "where did I put that" does not care which
   section something lives in.

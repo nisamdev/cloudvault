@@ -102,9 +102,24 @@ onBeforeUnmount(() => {
         <h2 id="preview-title" class="truncate text-body font-medium">{{ file.name }}</h2>
         <p class="text-caption text-gray-300">
           {{ formatFileSize(file.size) }}
+          <span v-if="file.image?.taken_at">
+            · taken {{ new Date(file.image.taken_at).toLocaleString() }}
+          </span>
+          <span v-if="file.image?.camera"> · {{ file.image.camera }}</span>
           <span v-if="preview?.truncated"> · showing the first 512 KB</span>
         </p>
       </div>
+
+      <a
+        v-if="file.image?.location"
+        :href="`https://www.openstreetmap.org/?mlat=${file.image.location.latitude}&mlon=${file.image.location.longitude}#map=15/${file.image.location.latitude}/${file.image.location.longitude}`"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="rounded-md px-3 py-2 text-body-sm font-medium transition hover:bg-white/10"
+        :title="`${file.image.location.latitude}, ${file.image.location.longitude}`"
+      >
+        <i class="fas fa-location-dot mr-2" aria-hidden="true"></i>Where
+      </a>
 
       <button
         type="button"

@@ -135,6 +135,7 @@ GEM
     erubi (1.13.1)
     et-orbi (1.4.1)
       tzinfo
+    exifr (1.5.1)
     factory_bot (6.6.0)
       activesupport (>= 6.1.0)
     factory_bot_rails (6.5.1)
@@ -454,6 +455,7 @@ DEPENDENCIES
   bundler-audit
   debug
   dotenv-rails (~> 3.1)
+  exifr (~> 1.4)
   factory_bot_rails (~> 6.4)
   faker (~> 3.5)
   image_processing (~> 1.2)

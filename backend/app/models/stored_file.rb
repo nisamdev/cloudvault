@@ -61,10 +61,12 @@ class StoredFile < ApplicationRecord
 
   # --- Gallery filters -------------------------------------------------------
 
+  # Takes fully-resolved times, not dates: "today" depends on the viewer's
+  # timezone, and only the controller knows whose gallery this is.
   scope :uploaded_between, lambda { |from, to|
     scope = all
-    scope = scope.where(created_at: from.beginning_of_day..) if from
-    scope = scope.where(created_at: ..to.end_of_day) if to
+    scope = scope.where(created_at: from..) if from
+    scope = scope.where(created_at: ..to) if to
     scope
   }
 
@@ -85,15 +87,35 @@ class StoredFile < ApplicationRecord
     end
   }
 
+  # Photos are ordered by when they were taken, falling back to upload time for
+  # anything without EXIF — otherwise a holiday album uploaded in one go all
+  # lands under today.
+  CAPTURED_AT = Arel.sql("COALESCE(stored_files.taken_at, stored_files.created_at)")
+
   scope :sorted_by, lambda { |key|
     case key
-    when "oldest" then order(created_at: :asc)
+    when "oldest" then order(Arel.sql("#{CAPTURED_AT} ASC"))
     when "name" then order(Arel.sql("LOWER(name) ASC"))
     when "largest" then order(size: :desc)
     when "smallest" then order(size: :asc)
-    else order(created_at: :desc)
+    else order(Arel.sql("#{CAPTURED_AT} DESC"))
     end
   }
+
+  scope :with_location, -> { where.not(latitude: nil).where.not(longitude: nil) }
+
+  # The date the gallery should file this under.
+  def captured_at
+    taken_at || created_at
+  end
+
+  def location?
+    latitude.present? && longitude.present?
+  end
+
+  def camera
+    [ camera_make, camera_model ].compact_blank.join(" ").presence
+  end
 
   scope :with_labels, lambda { |label_ids|
     ids = Array(label_ids).reject(&:blank?)

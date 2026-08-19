@@ -17,15 +17,27 @@ class ProcessImageJob < ApplicationJob
     stored_file.attachment.blob.analyze unless stored_file.attachment.blob.analyzed?
     metadata = stored_file.attachment.blob.metadata
 
-    stored_file.update_columns(
+    attributes = {
       image_width: metadata["width"],
       image_height: metadata["height"]
-    )
+    }.merge(exif_attributes(stored_file))
+
+    stored_file.update_columns(attributes)
 
     generate_thumbnail(stored_file)
   end
 
   private
+
+  # Capture date, GPS and camera, when the file carries them.
+  def exif_attributes(stored_file)
+    stored_file.attachment.blob.open do |file|
+      ExifExtractor.call(file, content_type: stored_file.mime_type).to_h
+    end
+  rescue StandardError => e
+    Rails.logger.warn("[exif] #{stored_file.id}: #{e.class}: #{e.message}")
+    {}
+  end
 
   def generate_thumbnail(stored_file)
     variant = stored_file.attachment.variant(

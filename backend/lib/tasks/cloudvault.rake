@@ -57,4 +57,29 @@ namespace :cloudvault do
 
     puts "storage recalculated"
   end
+
+  desc "Backfill EXIF (capture date, GPS, camera) for images uploaded before extraction existed"
+  task backfill_exif: :environment do
+    scope = StoredFile.images.where(taken_at: nil)
+    puts "[cloudvault] checking #{scope.count} images..."
+
+    found = 0
+    scope.find_each do |file|
+      next unless file.attachment.attached?
+
+      data = file.attachment.blob.open do |io|
+        ExifExtractor.call(io, content_type: file.mime_type).to_h
+      end
+
+      next if data.empty?
+
+      file.update_columns(data)
+      found += 1
+      puts "  #{file.name}: #{data.keys.join(", ")}"
+    rescue StandardError => e
+      puts "  #{file.name}: skipped (#{e.class})"
+    end
+
+    puts "[cloudvault] EXIF found for #{found} image(s)"
+  end
 end

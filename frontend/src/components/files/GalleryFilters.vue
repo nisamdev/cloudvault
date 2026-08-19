@@ -14,6 +14,9 @@ const library = useLibraryStore();
 
 const members = ref([]);
 const expanded = ref(false);
+// The preset select must be controlled, or "Clear filters" leaves it showing
+// the last preset while nothing is actually filtered.
+const preset = ref("");
 
 const SORTS = [
   { value: "newest", label: "Newest first" },
@@ -33,6 +36,8 @@ const ORIENTATIONS = [
 // Presets cover the common cases; the two date fields handle everything else.
 const DATE_PRESETS = [
   { value: "", label: "Any time" },
+  { value: "0", label: "Today" },
+  { value: "1", label: "Last 2 days" },
   { value: "7", label: "Last 7 days" },
   { value: "30", label: "Last 30 days" },
   { value: "365", label: "Last year" },
@@ -44,12 +49,64 @@ const filters = computed({
 });
 
 // Everything except sort, which is always set and is not really a "filter".
+// Human-readable summary of what is applied, each removable on its own.
+const activeChips = computed(() => {
+  const f = props.modelValue;
+  const chips = [];
+
+  if (f.date_from || f.date_to) {
+    const from = f.date_from ? new Date(f.date_from).toLocaleDateString() : "any";
+    const to = f.date_to ? new Date(f.date_to).toLocaleDateString() : "now";
+    chips.push({ key: "date", label: `${from} – ${to}`, clear: { date_from: "", date_to: "" } });
+  }
+
+  if (f.owner_id) {
+    const member = members.value.find((m) => String(m.user.id) === String(f.owner_id));
+    chips.push({
+      key: "owner",
+      label: `By ${member?.user.full_name || member?.user.email || "someone"}`,
+      clear: { owner_id: "" },
+    });
+  }
+
+  if (f.visibility) {
+    chips.push({
+      key: "visibility",
+      label: f.visibility === "family" ? "Shared with family" : "Only me",
+      clear: { visibility: "" },
+    });
+  }
+
+  if (f.orientation) {
+    chips.push({ key: "orientation", label: f.orientation, clear: { orientation: "" } });
+  }
+
+  if (f.has_location) {
+    chips.push({ key: "location", label: "Has location", clear: { has_location: "" } });
+  }
+
+  for (const id of f.label_ids ?? []) {
+    const label = library.labels.find((l) => l.id === id);
+    if (label) {
+      chips.push({
+        key: `label-${id}`,
+        label: label.name,
+        color: label.color,
+        clear: { label_ids: (f.label_ids ?? []).filter((x) => x !== id) },
+      });
+    }
+  }
+
+  return chips;
+});
+
 const activeCount = computed(() => {
   const f = props.modelValue;
   return [
     f.owner_id,
     f.visibility,
     f.orientation,
+    f.has_location,
     f.date_from,
     f.date_to,
     f.label_ids?.length ? "1" : "",
@@ -74,7 +131,8 @@ function update(patch) {
 }
 
 function applyPreset(days) {
-  if (!days) {
+  // "0" means today, which is falsy as a number — check for the empty option.
+  if (days === "" || days === null || days === undefined) {
     update({ date_from: "", date_to: "" });
     return;
   }
@@ -91,10 +149,12 @@ function toggleLabel(id) {
 }
 
 function clearAll() {
+  preset.value = "";
   update({
     owner_id: "",
     visibility: "",
     orientation: "",
+    has_location: "",
     date_from: "",
     date_to: "",
     label_ids: [],
@@ -123,6 +183,7 @@ function clearAll() {
         <label for="gallery-date" class="sr-only">Date range</label>
         <select
           id="gallery-date"
+          v-model="preset"
           class="rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
           @change="applyPreset($event.target.value)"
         >
@@ -172,6 +233,28 @@ function clearAll() {
       </button>
     </div>
 
+    <!-- What is actually applied right now, each chip removable. -->
+    <ul v-if="activeChips.length" class="mt-3 flex flex-wrap items-center gap-2">
+      <li class="text-caption font-medium uppercase tracking-wide text-gray-400">Filtered by</li>
+      <li v-for="chip in activeChips" :key="chip.key">
+        <button
+          type="button"
+          class="flex items-center gap-2 rounded-full bg-primary-50 px-3 py-1 text-body-sm text-primary-700 transition hover:bg-primary-100"
+          :aria-label="`Remove filter: ${chip.label}`"
+          @click="update(chip.clear)"
+        >
+          <span
+            v-if="chip.color"
+            class="h-2.5 w-2.5 rounded-full"
+            :style="{ backgroundColor: chip.color }"
+            aria-hidden="true"
+          ></span>
+          {{ chip.label }}
+          <i class="fas fa-xmark text-caption" aria-hidden="true"></i>
+        </button>
+      </li>
+    </ul>
+
     <div v-if="expanded" class="mt-4 grid gap-4 border-t border-gray-200 pt-4 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <label for="gallery-visibility" class="mb-1 block text-label font-medium text-gray-600">
@@ -206,13 +289,28 @@ function clearAll() {
       </div>
 
       <div>
+        <label for="gallery-location" class="mb-1 block text-label font-medium text-gray-600">
+          Location
+        </label>
+        <select
+          id="gallery-location"
+          :value="modelValue.has_location"
+          class="w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+          @change="update({ has_location: $event.target.value })"
+        >
+          <option value="">Anywhere</option>
+          <option value="true">Has location</option>
+        </select>
+      </div>
+
+      <div>
         <label for="gallery-from" class="mb-1 block text-label font-medium text-gray-600">From</label>
         <input
           id="gallery-from"
           type="date"
           :value="modelValue.date_from"
           class="w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
-          @change="update({ date_from: $event.target.value })"
+          @change="preset = ''; update({ date_from: $event.target.value })"
         />
       </div>
 
@@ -223,7 +321,7 @@ function clearAll() {
           type="date"
           :value="modelValue.date_to"
           class="w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
-          @change="update({ date_to: $event.target.value })"
+          @change="preset = ''; update({ date_to: $event.target.value })"
         />
       </div>
 

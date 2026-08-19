@@ -23,7 +23,8 @@ module Api
         scope = scope.by_owner(params[:owner_id])
         scope = scope.with_visibility(params[:visibility])
         scope = scope.with_orientation(params[:orientation])
-        scope = scope.uploaded_between(parse_date(params[:date_from]), parse_date(params[:date_to]))
+        scope = scope.uploaded_between(*date_range)
+        scope = scope.with_location if params[:has_location] == "true"
 
         pagy, records = pagy(
           scope.sorted_by(params[:sort]).includes(:user, :folder, :labels, attachment_attachment: :blob),
@@ -313,6 +314,20 @@ module Api
         source.permit(:name, :visibility, :folder_id)
       end
 
+      # Resolves date_from/date_to into a time range in the viewer's timezone.
+      #
+      # The gallery groups photos under "Today" using the browser's clock, so
+      # the filter has to agree with it. Interpreting the dates in UTC would put
+      # this evening's uploads outside "today" for anyone east of Greenwich.
+      def date_range
+        zone = ActiveSupport::TimeZone[current_user.timezone.to_s] || Time.zone
+
+        from = parse_date(params[:date_from])&.in_time_zone(zone)&.beginning_of_day
+        to = parse_date(params[:date_to])&.in_time_zone(zone)&.end_of_day
+
+        [ from, to ]
+      end
+
       # A malformed date filters nothing rather than erroring the whole listing.
       def parse_date(value)
         return nil if value.blank?
@@ -355,8 +370,14 @@ module Api
           payload[:image] = {
             width: file.image_width,
             height: file.image_height,
-            thumbnail_url: thumbnail_url_for(file)
+            thumbnail_url: thumbnail_url_for(file),
+            # When the shutter fired, if the file said so.
+            taken_at: file.taken_at,
+            camera: file.camera,
+            location: file.location? ? { latitude: file.latitude.to_f, longitude: file.longitude.to_f } : nil
           }
+          # What the gallery groups and sorts by.
+          payload[:captured_at] = file.captured_at
         end
 
         payload[:download_url] = "#{Rails.configuration.x.api_url}/api/v1/files/#{file.id}/download" if detailed

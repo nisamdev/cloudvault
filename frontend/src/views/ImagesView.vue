@@ -23,6 +23,7 @@ const filters = ref({
   owner_id: "",
   visibility: "",
   orientation: "",
+  has_location: "",
   date_from: "",
   date_to: "",
   label_ids: [],
@@ -36,12 +37,17 @@ const broken = ref(new Set());
 const sentinel = ref(null);
 let observer = null;
 
-const groups = computed(() => groupByDate(filesStore.items));
+// Group by when the photo was taken; upload time is only a fallback for files
+// without EXIF (the API sends captured_at already resolved).
+const groups = computed(() => groupByDate(filesStore.items, "captured_at"));
 const showEmpty = computed(() => !filesStore.loading && filesStore.items.length === 0);
 
 const hasFilters = computed(() => {
   const f = filters.value;
-  return Boolean(f.owner_id || f.visibility || f.orientation || f.date_from || f.date_to || f.label_ids.length);
+  return Boolean(
+    f.owner_id || f.visibility || f.orientation || f.has_location ||
+    f.date_from || f.date_to || f.label_ids.length,
+  );
 });
 
 onMounted(() => {
@@ -64,9 +70,14 @@ watch(sentinel, (el, previous) => {
 
 onBeforeUnmount(() => observer?.disconnect());
 
-function load() {
+// Remembered from the last unfiltered load so the header can say "8 of 27".
+const unfilteredTotal = ref(0);
+
+async function load() {
   const { label_ids: labelIds, ...rest } = filters.value;
-  filesStore.fetchFiles({ fileType: "image", labelIds, filters: rest });
+  await filesStore.fetchFiles({ fileType: "image", labelIds, filters: rest });
+
+  if (!hasFilters.value) unfilteredTotal.value = filesStore.totalCount;
 }
 
 // Sorting by anything but date makes the date headings meaningless.
@@ -116,7 +127,16 @@ function photoMenu(event, file) {
       <div>
         <h1 class="text-h2 font-bold text-gray-800">Photo Gallery</h1>
         <p class="mt-1 text-body-sm text-gray-500">
-          {{ filesStore.totalCount }} {{ filesStore.totalCount === 1 ? "photo" : "photos" }}
+          <template v-if="hasFilters">
+            {{ filesStore.totalCount }} of {{ unfilteredTotal }}
+            {{ unfilteredTotal === 1 ? "photo" : "photos" }} match
+          </template>
+          <template v-else>
+            {{ filesStore.totalCount }} {{ filesStore.totalCount === 1 ? "photo" : "photos" }}
+          </template>
+          <span v-if="filesStore.items.length < filesStore.totalCount" class="text-gray-400">
+            · showing {{ filesStore.items.length }}, scroll for more
+          </span>
         </p>
       </div>
 
@@ -200,7 +220,14 @@ function photoMenu(event, file) {
               >
                 <span class="block truncate text-caption font-medium text-white">{{ photo.name }}</span>
                 <span class="block text-caption text-gray-300">
-                  {{ formatRelativeDate(photo.created_at) }} · {{ formatFileSize(photo.size) }}
+                  {{ formatRelativeDate(photo.captured_at ?? photo.created_at) }} ·
+                  {{ formatFileSize(photo.size) }}
+                  <i
+                    v-if="photo.image?.location"
+                    class="fas fa-location-dot ml-1"
+                    :title="'Has location'"
+                    aria-hidden="true"
+                  ></i>
                 </span>
               </span>
 
