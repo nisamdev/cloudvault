@@ -52,3 +52,79 @@ RSpec.describe FileUploader, "family quota isolation" do
     expect(family.reload.family_storage_used).to eq(family_total)
   end
 end
+
+RSpec.describe FileUploader, "content type detection" do
+  let(:user) { create(:user, storage_quota: 10_000_000) }
+
+  # A minimal ISO-BMFF ftyp box declaring the HEIC brand — the magic bytes a
+  # real iPhone photo starts with.
+  def heic_bytes
+    brands = "heic".b + [ 0 ].pack("N") + "mif1heic".b
+    ftyp = [ 8 + brands.bytesize ].pack("N") + "ftyp".b + brands
+    ftyp + ([ 16 ].pack("N") + "meta".b + ("\x00".b * 8)) + ("\x00".b * 64)
+  end
+
+  def upload_of(bytes, filename:, declared_type:)
+    file = Tempfile.new(%w[upload .bin], binmode: true)
+    file.write(bytes)
+    file.rewind
+
+    ActionDispatch::Http::UploadedFile.new(
+      tempfile: file, filename: filename, type: declared_type
+    )
+  end
+
+  it "files a HEIC as an image when the browser declares octet-stream" do
+    # Chrome sends this for .heic wherever the OS has no registration for it.
+    stored = described_class.new(user: user).call(
+      upload_of(heic_bytes, filename: "IMG_0001.heic", declared_type: "application/octet-stream")
+    )
+
+    expect(stored.mime_type).to eq("image/heic")
+    expect(stored.file_type).to eq("image")
+  end
+
+  it "files a HEIC as an image when the browser declares nothing at all" do
+    stored = described_class.new(user: user).call(
+      upload_of(heic_bytes, filename: "IMG_0002.heic", declared_type: "")
+    )
+
+    expect(stored.file_type).to eq("image")
+  end
+
+  it "keeps a correctly declared type" do
+    stored = described_class.new(user: user).call(
+      upload_of(heic_bytes, filename: "IMG_0003.heic", declared_type: "image/heic")
+    )
+
+    expect(stored.mime_type).to eq("image/heic")
+  end
+
+  it "trusts the bytes over a wrong declared type" do
+    png = Vips::Image.black(8, 8).cast("uchar").colourspace("srgb").pngsave_buffer
+
+    stored = described_class.new(user: user).call(
+      upload_of(png, filename: "photo.png", declared_type: "text/plain")
+    )
+
+    expect(stored.mime_type).to eq("image/png")
+    expect(stored.file_type).to eq("image")
+  end
+
+  it "leaves the tempfile readable for Active Storage after sniffing it" do
+    stored = described_class.new(user: user).call(
+      upload_of(heic_bytes, filename: "IMG_0004.heic", declared_type: "")
+    )
+
+    # Marcel reads from the tempfile; without a rewind the blob would be empty.
+    expect(stored.attachment.download.bytesize).to eq(heic_bytes.bytesize)
+  end
+
+  it "still refuses an executable renamed to look like an image" do
+    expect {
+      described_class.new(user: user).call(
+        upload_of("MZ\x90\x00".b, filename: "payload.exe", declared_type: "image/png")
+      )
+    }.to raise_error(described_class::UnsupportedType)
+  end
+end

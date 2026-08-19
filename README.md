@@ -135,7 +135,8 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   Filter by date (including Today), uploader, visibility, shape, label and whether the photo carries
   a location; sort by date, name or size. Active filters show as removable chips with an
   "N of M match" count
-- **EXIF** — capture date, GPS coordinates and camera are read on upload
+- **EXIF** — capture date, GPS coordinates and camera are read on upload, from JPEG, TIFF **and
+  HEIC/AVIF** (iPhone photos)
 - **Details panel** — every date (uploaded, taken, modified, last opened, purge date), dimensions,
   megapixels, camera, coordinates with a map link, folder path, labels, visibility, checksum,
   version history and active share links
@@ -157,7 +158,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-295 backend specs and 19 frontend tests, all passing.
+293 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -201,6 +202,10 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **The browser's Content-Type is not trusted.** Chrome sends an empty string or
+  `application/octet-stream` for `.heic` wherever the OS has no registration for it, which filed
+  iPhone photos as documents so they never reached the gallery. Marcel re-detects from the magic
+  bytes server-side. `rails cloudvault:reclassify_files` repairs anything already misfiled.
 - **EXIF is best-effort.** It is absent from screenshots and PNGs, and messaging apps strip it, so
   every failure path returns nothing rather than raising. Cameras with a dead clock battery report
   1970-era dates, which are rejected. EXIF carries no timezone, so times are read as UTC rather

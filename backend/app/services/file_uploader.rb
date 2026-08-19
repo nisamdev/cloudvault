@@ -51,7 +51,11 @@ class FileUploader
     raise FileTooLarge, "That file is larger than the #{max_upload_mb} MB limit." if size > max_upload_bytes
 
     extension = File.extname(upload.original_filename.to_s).downcase
-    if BLOCKED_MIME_TYPES.include?(upload.content_type) || BLOCKED_EXTENSIONS.include?(extension)
+    # Checked against both what the client claims and what the bytes say, so a
+    # renamed executable is caught either way.
+    if BLOCKED_MIME_TYPES.include?(upload.content_type) ||
+       BLOCKED_MIME_TYPES.include?(resolve_content_type(upload)) ||
+       BLOCKED_EXTENSIONS.include?(extension)
       raise UnsupportedType, "That file type isn't allowed."
     end
 
@@ -64,22 +68,24 @@ class FileUploader
   end
 
   def create_file(upload, folder, visibility)
+    content_type = resolve_content_type(upload)
+
     StoredFile.transaction do
       stored_file = StoredFile.create!(
         user: user,
         family: visibility == "family" ? family : nil,
         folder: folder,
         name: sanitized_name(upload.original_filename),
-        mime_type: upload.content_type.presence || "application/octet-stream",
+        mime_type: content_type,
         size: upload.size.to_i,
-        file_type: StoredFile.file_type_for(upload.content_type),
+        file_type: StoredFile.file_type_for(content_type),
         visibility: visibility
       )
 
       stored_file.attachment.attach(
         io: upload.tempfile,
         filename: stored_file.name,
-        content_type: stored_file.mime_type
+        content_type: content_type
       )
 
       charge_storage(upload.size.to_i, family_id: stored_file.family_id)
@@ -108,15 +114,18 @@ class FileUploader
         stored_file.attachment.detach
       end
 
+      content_type = resolve_content_type(upload)
+
       stored_file.attachment.attach(
         io: upload.tempfile,
         filename: stored_file.name,
-        content_type: upload.content_type
+        content_type: content_type
       )
 
       stored_file.update!(
         size: upload.size.to_i,
-        mime_type: upload.content_type.presence || stored_file.mime_type,
+        mime_type: content_type,
+        file_type: StoredFile.file_type_for(content_type),
         version_number: stored_file.version_number + 1
       )
 
@@ -156,6 +165,26 @@ class FileUploader
 
   def enqueue_processing(stored_file)
     ProcessImageJob.perform_later(stored_file.id) if stored_file.image?
+  end
+
+  # The browser's Content-Type is unreliable: Chrome sends an empty string or
+  # application/octet-stream for formats the OS does not recognise, which is
+  # routine for .heic from an iPhone. Believing it files a photo as a document,
+  # so it never appears in the gallery.
+  #
+  # Marcel inspects the magic bytes first and falls back to the extension, so it
+  # gets HEIC right whatever the browser claims.
+  def resolve_content_type(upload)
+    detected = Marcel::MimeType.for(
+      upload.tempfile,
+      name: upload.original_filename,
+      declared_type: upload.content_type
+    )
+
+    detected.presence || upload.content_type.presence || "application/octet-stream"
+  ensure
+    # Marcel reads from the tempfile; Active Storage needs it back at the start.
+    upload.tempfile.rewind
   end
 
   # Strips any directory component a client may have sent.

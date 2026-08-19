@@ -82,4 +82,33 @@ namespace :cloudvault do
 
     puts "[cloudvault] EXIF found for #{found} image(s)"
   end
+
+  desc "Re-detect file types for uploads misfiled because the browser sent a vague Content-Type"
+  task reclassify_files: :environment do
+    require "marcel"
+
+    fixed = 0
+
+    StoredFile.where(file_type: "file").find_each do |file|
+      next unless file.attachment.attached?
+
+      # Marcel only needs the head of the file to match magic bytes.
+      head = file.attachment.blob.open { |io| io.read(8192) }
+      detected = Marcel::MimeType.for(StringIO.new(head.to_s), name: file.name)
+      next if detected.blank? || detected == file.mime_type
+
+      new_type = StoredFile.file_type_for(detected)
+      next if new_type == file.file_type
+
+      file.update_columns(mime_type: detected, file_type: new_type)
+      ProcessImageJob.perform_later(file.id) if new_type == "image"
+
+      fixed += 1
+      puts "  #{file.name}: #{file.mime_type_previously_was rescue "file"} -> #{detected} (#{new_type})"
+    rescue StandardError => e
+      puts "  #{file.name}: skipped (#{e.class})"
+    end
+
+    puts "[cloudvault] reclassified #{fixed} file(s)"
+  end
 end

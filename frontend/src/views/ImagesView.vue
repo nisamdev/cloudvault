@@ -156,7 +156,16 @@ function photoMenu(event, file) {
       </div>
     </header>
 
-    <UploadZone :visibility="visibility" accept="image/*" class="mb-6" @uploaded="load" />
+    <!--
+      image/* alone hides .heic and .avif in the file picker on systems that do
+      not register them as image types, so the extensions are listed too.
+    -->
+    <UploadZone
+      :visibility="visibility"
+      accept="image/*,.heic,.heif,.avif,.jxl"
+      class="mb-6"
+      @uploaded="load"
+    />
 
     <GalleryFilters v-model="filters" @change="load" />
 

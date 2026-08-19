@@ -11,6 +11,9 @@ require "exifr/tiff"
 class ExifExtractor
   JPEG_TYPES = %w[image/jpeg image/jpg].freeze
   TIFF_TYPES = %w[image/tiff image/x-tiff].freeze
+  # Modern phone formats. exifr cannot parse the container, but libvips can, and
+  # it hands back the embedded EXIF block verbatim — which exifr reads happily.
+  CONTAINER_TYPES = %w[image/heic image/heif image/avif].freeze
 
   Result = Struct.new(:taken_at, :latitude, :longitude, :camera_make, :camera_model, keyword_init: true) do
     def to_h
@@ -55,7 +58,31 @@ class ExifExtractor
       EXIFR::JPEG.new(@io)
     elsif TIFF_TYPES.include?(@content_type)
       EXIFR::TIFF.new(@io)
+    elsif CONTAINER_TYPES.include?(@content_type)
+      exif_from_container
     end
+  end
+
+  # HEIC/AVIF wrap EXIF inside an ISO-BMFF container. libvips already decodes
+  # these for thumbnails, and exposes the raw EXIF block as "exif-data", so the
+  # same exifr parser handles it — including GPS hemispheres and date checks.
+  def exif_from_container
+    require "vips"
+
+    bytes = @io.read
+    @io.rewind if @io.respond_to?(:rewind)
+    return nil if bytes.blank?
+
+    raw = Vips::Image.new_from_buffer(bytes, "").get("exif-data")
+    return nil if raw.blank?
+
+    # vips keeps the "Exif\0\0" prefix; the TIFF structure starts after it.
+    payload = raw.start_with?("Exif\x00\x00") ? raw.byteslice(6..) : raw
+    EXIFR::TIFF.new(StringIO.new(payload))
+  rescue StandardError => e
+    # No EXIF block, or a container libvips cannot open.
+    Rails.logger.debug { "[exif] container read failed: #{e.class}: #{e.message}" }
+    nil
   end
 
   # date_time_original is when the shutter fired; the others are when the file
