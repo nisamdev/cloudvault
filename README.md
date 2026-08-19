@@ -131,7 +131,9 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Labels** — colour-coded tags shared across the family, applied per file, usable as a
   cross-cutting filter
 - **Photos** — responsive gallery grouped by date (Today / Yesterday / Earlier this week / month),
-  lazy-loaded thumbnails, infinite scroll, hover overlay, and the shared lightbox with ← → paging
+  lazy-loaded thumbnails, infinite scroll, hover overlay, and the shared lightbox with ← → paging.
+  Filter by date range, uploader, visibility, shape (landscape/portrait/square) and label; sort by
+  date, name or size
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
@@ -150,7 +152,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-246 backend specs and 19 frontend tests, all passing.
+266 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See

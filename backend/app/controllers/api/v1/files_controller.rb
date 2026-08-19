@@ -19,8 +19,14 @@ module Api
         scope = scope.with_labels(params[:label_ids]) if params[:label_ids].present?
         scope = scope.search(params[:q]) if params[:q].present?
 
+        # Gallery filters. Each is a no-op when its parameter is absent.
+        scope = scope.by_owner(params[:owner_id])
+        scope = scope.with_visibility(params[:visibility])
+        scope = scope.with_orientation(params[:orientation])
+        scope = scope.uploaded_between(parse_date(params[:date_from]), parse_date(params[:date_to]))
+
         pagy, records = pagy(
-          scope.recent.includes(:user, :folder, :labels, attachment_attachment: :blob),
+          scope.sorted_by(params[:sort]).includes(:user, :folder, :labels, attachment_attachment: :blob),
           limit: per_page
         )
         pagination_headers(pagy)
@@ -305,6 +311,15 @@ module Api
         # one under file_attributes.
         source = params[:file_attributes].presence || params
         source.permit(:name, :visibility, :folder_id)
+      end
+
+      # A malformed date filters nothing rather than erroring the whole listing.
+      def parse_date(value)
+        return nil if value.blank?
+
+        Date.parse(value.to_s)
+      rescue Date::Error
+        nil
       end
 
       def per_page

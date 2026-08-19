@@ -5,6 +5,7 @@ import { useFilesStore } from "@/stores/files";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useDialog } from "@/composables/useDialog";
 import UploadZone from "@/components/files/UploadZone.vue";
+import GalleryFilters from "@/components/files/GalleryFilters.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
@@ -16,6 +17,16 @@ const contextMenu = useContextMenu();
 const dialog = useDialog();
 
 const visibility = ref("private");
+
+const filters = ref({
+  sort: "newest",
+  owner_id: "",
+  visibility: "",
+  orientation: "",
+  date_from: "",
+  date_to: "",
+  label_ids: [],
+});
 const previewFile = ref(null);
 const sharingFile = ref(null);
 const broken = ref(new Set());
@@ -27,6 +38,11 @@ let observer = null;
 
 const groups = computed(() => groupByDate(filesStore.items));
 const showEmpty = computed(() => !filesStore.loading && filesStore.items.length === 0);
+
+const hasFilters = computed(() => {
+  const f = filters.value;
+  return Boolean(f.owner_id || f.visibility || f.orientation || f.date_from || f.date_to || f.label_ids.length);
+});
 
 onMounted(() => {
   load();
@@ -49,8 +65,12 @@ watch(sentinel, (el, previous) => {
 onBeforeUnmount(() => observer?.disconnect());
 
 function load() {
-  filesStore.fetchFiles({ fileType: "image" });
+  const { label_ids: labelIds, ...rest } = filters.value;
+  filesStore.fetchFiles({ fileType: "image", labelIds, filters: rest });
 }
+
+// Sorting by anything but date makes the date headings meaningless.
+const grouped = computed(() => filters.value.sort === "newest" || filters.value.sort === "oldest");
 
 async function onTrash(file) {
   const ok = await dialog.confirm({
@@ -113,7 +133,9 @@ function photoMenu(event, file) {
       </div>
     </header>
 
-    <UploadZone :visibility="visibility" accept="image/*" class="mb-8" @uploaded="load" />
+    <UploadZone :visibility="visibility" accept="image/*" class="mb-6" @uploaded="load" />
+
+    <GalleryFilters v-model="filters" @change="load" />
 
     <p
       v-if="filesStore.error"
@@ -130,13 +152,24 @@ function photoMenu(event, file) {
 
     <div v-else-if="showEmpty" class="rounded-lg border border-gray-200 bg-white p-12 text-center">
       <i class="fas fa-images text-4xl text-gray-300" aria-hidden="true"></i>
-      <h2 class="mt-4 text-h3 font-semibold text-gray-800">No photos yet</h2>
-      <p class="mt-2 text-body text-gray-500">Drop images above and they'll appear here.</p>
+      <h2 class="mt-4 text-h3 font-semibold text-gray-800">
+        {{ hasFilters ? "No photos match those filters" : "No photos yet" }}
+      </h2>
+      <p class="mt-2 text-body text-gray-500">
+        {{ hasFilters ? "Try widening the date range or clearing a filter." : "Drop images above and they'll appear here." }}
+      </p>
     </div>
 
     <template v-else>
-      <section v-for="group in groups" :key="group.label" class="mb-8">
-        <h2 class="mb-3 text-label font-medium uppercase tracking-wide text-gray-500">
+      <section
+        v-for="group in (grouped ? groups : [{ label: null, items: filesStore.items }])"
+        :key="group.label ?? 'all'"
+        class="mb-8"
+      >
+        <h2
+          v-if="group.label"
+          class="mb-3 text-label font-medium uppercase tracking-wide text-gray-500"
+        >
           {{ group.label }}
         </h2>
 

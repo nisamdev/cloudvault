@@ -59,6 +59,42 @@ class StoredFile < ApplicationRecord
     )
   }
 
+  # --- Gallery filters -------------------------------------------------------
+
+  scope :uploaded_between, lambda { |from, to|
+    scope = all
+    scope = scope.where(created_at: from.beginning_of_day..) if from
+    scope = scope.where(created_at: ..to.end_of_day) if to
+    scope
+  }
+
+  scope :by_owner, ->(user_id) { user_id.present? ? where(user_id: user_id) : all }
+
+  scope :with_visibility, lambda { |visibility|
+    VISIBILITIES.include?(visibility) ? where(visibility: visibility) : all
+  }
+
+  # Dimensions are filled in asynchronously, so anything not yet processed is
+  # simply left out rather than guessed at.
+  scope :with_orientation, lambda { |orientation|
+    case orientation
+    when "landscape" then where("image_width > image_height")
+    when "portrait" then where("image_height > image_width")
+    when "square" then where("image_width = image_height").where.not(image_width: nil)
+    else all
+    end
+  }
+
+  scope :sorted_by, lambda { |key|
+    case key
+    when "oldest" then order(created_at: :asc)
+    when "name" then order(Arel.sql("LOWER(name) ASC"))
+    when "largest" then order(size: :desc)
+    when "smallest" then order(size: :asc)
+    else order(created_at: :desc)
+    end
+  }
+
   scope :with_labels, lambda { |label_ids|
     ids = Array(label_ids).reject(&:blank?)
     next all if ids.empty?

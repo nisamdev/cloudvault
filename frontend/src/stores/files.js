@@ -30,8 +30,11 @@ export const useFilesStore = defineStore("files", () => {
     q = "",
     page: pageNum = 1,
     append = false,
+    // Gallery filters: owner_id, visibility, orientation, date_from, date_to,
+    // sort. Passed through as-is so adding one needs no store change.
+    filters = {},
   } = {}) {
-    lastQuery = { fileType, folderId, labelIds, trashed, q };
+    lastQuery = { fileType, folderId, labelIds, trashed, q, filters };
     loading.value = !append;
     loadingMore.value = append;
     error.value = "";
@@ -49,6 +52,9 @@ export const useFilesStore = defineStore("files", () => {
           trashed: trashed ? "true" : undefined,
           q: q || undefined,
           page: pageNum,
+          ...Object.fromEntries(
+            Object.entries(filters).filter(([, value]) => value !== "" && value != null),
+          ),
         },
       });
 
