@@ -124,6 +124,19 @@ export const useLibraryStore = defineStore("library", () => {
     breadcrumbs.value = [...data.breadcrumbs, { id: data.folder.id, name: data.folder.name }];
   }
 
+  const trashedFolders = ref([]);
+
+  async function fetchTrashedFolders() {
+    const { data } = await api.get("/folders/trashed");
+    trashedFolders.value = data.folders;
+  }
+
+  async function restoreFolder(folder) {
+    await api.post(`/folders/${folder.id}/restore`);
+    trashedFolders.value = trashedFolders.value.filter((f) => f.id !== folder.id);
+    await fetchFolders();
+  }
+
   async function createLabel({ name, color }) {
     const { data } = await api.post("/labels", { label: { name, color } });
     await fetchLabels();
@@ -172,6 +185,9 @@ export const useLibraryStore = defineStore("library", () => {
     deleteFolder,
     openFolder,
     downloadFolder,
+    trashedFolders,
+    fetchTrashedFolders,
+    restoreFolder,
     createLabel,
     renameLabel,
     deleteLabel,

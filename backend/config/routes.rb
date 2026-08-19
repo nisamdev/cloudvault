@@ -27,16 +27,21 @@ Rails.application.routes.draw do
       # --- Files and images --------------------------------------------------
       resources :files, only: %i[index show create update destroy] do
         member do
-          get  :download
-          get  :preview
-          post :restore
+          get    :download
+          get    :preview
+          post   :restore
+          delete :purge
         end
         # Managing links for a file (owner side).
         resources :shares, only: %i[index create]
       end
 
       resources :folders, only: %i[index show create update destroy] do
+        collection do
+          get :trashed
+        end
         member do
+          post :restore
           # Two steps: the SPA asks for a signed URL, the browser then navigates
           # to it so the ZIP downloads like any other file.
           post :download_url

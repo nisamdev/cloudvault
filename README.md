@@ -130,6 +130,8 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   "All files" to move back to the top). Deleting a folder trashes its whole branch.
 - **Labels** — colour-coded tags shared across the family, applied per file, usable as a
   cross-cutting filter
+- **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
+  with a per-item countdown; a nightly job removes anything past the retention window
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
   PDFs, video, audio and text render inline; ← → step through the list, Escape closes
 - **Context menus** — right-click any file, folder, tree node, label, or empty space; full keyboard
@@ -146,9 +148,9 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-229 backend specs and 13 frontend tests, all passing.
+246 backend specs and 13 frontend tests, all passing.
 
-**Not built yet:** photo gallery grid and lightbox, trash screen, settings screen, OAuth sign-in. Those screens are routed
+**Not built yet:** photo gallery grid and lightbox, the Shared screen, settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
 [`docs/PHASE1_IMPLEMENTATION_GUIDE.md`](./docs/PHASE1_IMPLEMENTATION_GUIDE.md) weeks 4–8.
 
@@ -173,6 +175,9 @@ placeholders that state what belongs on them. See
   plain unique index never constrains folders at the root.
 - **Searching or filtering by label ignores the current folder**, because both are cross-cutting
   questions ("everything tagged Taxes"), not folder-local ones.
+- **Permanent deletion goes through `FilePurger`**, not `destroy`, because storage counters are
+  maintained incrementally and have to be adjusted in the same transaction. Restoring a file whose
+  folder is still in the trash returns it to the root rather than to a folder nobody can reach.
 - **PDFs use `<object>`, not `<iframe>`, and are never sandboxed.** Chrome refuses to run its PDF
   viewer inside a sandboxed frame ("This page has been blocked by Chrome"), and `<object>` renders
   its child content as a fallback when the browser has no viewer at all. No sandbox is needed: the

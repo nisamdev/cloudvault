@@ -76,6 +76,38 @@ module Api
         head :no_content
       end
 
+      # GET /api/v1/folders/trashed
+      # Folders sitting in the trash, for the Trash screen.
+      def trashed
+        folders = visible_folders.where.not(trashed_at: nil).order(trashed_at: :desc)
+
+        render json: { folders: folders.map { |folder| serialize(folder).merge(
+          trashed_at: folder.trashed_at,
+          purge_after: folder.trashed_at + retention_days.days
+        ) } }
+      end
+
+      # POST /api/v1/folders/:id/restore
+      # Brings the folder back, along with the files that went down with it.
+      def restore
+        folder = visible_folders.find_by(id: params[:id])
+        return render_error(message: "We couldn't find what you were looking for.",
+                            code: "not_found", status: :not_found) if folder.nil?
+
+        Folder.transaction do
+          # A parent that is still in the trash would leave this folder
+          # unreachable, so it comes back at the top level instead.
+          folder.parent = nil if folder.parent&.trashed_at
+          folder.update!(trashed_at: nil)
+
+          StoredFile.where(folder_id: folder.id)
+                    .where.not(trashed_at: nil)
+                    .update_all(trashed_at: nil, updated_at: Time.current)
+        end
+
+        render json: { folder: serialize(folder) }
+      end
+
       # POST /api/v1/folders/:id/download_url
       # Hands back a short-lived URL the browser can navigate to.
       def download_url
@@ -128,6 +160,10 @@ module Api
       end
 
       private
+
+      def retention_days
+        ENV.fetch("TRASH_RETENTION_DAYS", 30).to_i
+      end
 
       PRECOMPRESSED_TYPES = %w[image/ video/ audio/].freeze
       PRECOMPRESSED_EXACT = %w[application/zip application/gzip application/pdf].freeze

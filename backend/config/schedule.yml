@@ -1,0 +1,6 @@
+# Recurring background work, loaded by the Sidekiq worker on startup.
+purge_trash:
+  cron: "30 3 * * *"   # daily at 03:30 UTC, off-peak
+  class: PurgeTrashJob
+  queue: maintenance
+  description: "Permanently delete items past the trash retention window"

@@ -25,6 +25,9 @@ gem "ruby-vips", "~> 2.2"
 
 # --- Background jobs --------------------------------------------------------
 gem "sidekiq", "~> 8.0"
+# Recurring jobs. The Trash screen promises files disappear after 30 days, so
+# something has to actually run the purge.
+gem "sidekiq-cron", "~> 2.3"
 gem "redis", "~> 5.3"
 
 # --- API plumbing -----------------------------------------------------------

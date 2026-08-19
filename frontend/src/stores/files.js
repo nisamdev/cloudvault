@@ -131,6 +131,13 @@ export const useFilesStore = defineStore("files", () => {
     window.location.assign(data.url);
   }
 
+  /** Permanently deletes a trashed file and frees its storage. */
+  async function purge(file) {
+    await api.delete(`/files/${file.id}/purge`);
+    items.value = items.value.filter((f) => f.id !== file.id);
+    totalCount.value = Math.max(totalCount.value - 1, 0);
+  }
+
   /** Renames a file in place. */
   async function rename(file, name) {
     const { data } = await api.patch(`/files/${file.id}`, { name });
@@ -173,6 +180,7 @@ export const useFilesStore = defineStore("files", () => {
     download,
     move,
     rename,
+    purge,
     dismissUpload,
   };
 });

@@ -3,7 +3,7 @@
 module Api
   module V1
     class FilesController < BaseController
-      before_action :set_file, only: %i[show update destroy download restore preview]
+      before_action :set_file, only: %i[show update destroy download restore preview purge]
 
       # GET /api/v1/files
       # Params: folder_id, file_type (file|image), trashed, q, page, per_page
@@ -123,8 +123,28 @@ module Api
       def restore
         authorize!(:delete) or return
 
+        # A file whose folder was trashed alongside it would come back into a
+        # folder the user cannot navigate to, so it returns to the root.
+        @file.folder = nil if @file.folder&.trashed_at
         @file.restore!
+
         render json: { file: serialize(@file) }
+      end
+
+      # DELETE /api/v1/files/:id/purge — permanent, releases the storage
+      def purge
+        authorize!(:delete) or return
+
+        unless @file.trashed?
+          return render_error(
+            message: "Move the file to trash before deleting it permanently.",
+            code: "not_trashed",
+            status: :unprocessable_content
+          )
+        end
+
+        FilePurger.new(@file).call
+        head :no_content
       end
 
       # GET /api/v1/files/:id/download
