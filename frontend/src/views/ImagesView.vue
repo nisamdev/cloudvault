@@ -7,6 +7,7 @@ import { useDialog } from "@/composables/useDialog";
 import UploadZone from "@/components/files/UploadZone.vue";
 import GalleryFilters from "@/components/files/GalleryFilters.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
+import FileDetails from "@/components/files/FileDetails.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import { formatFileSize, formatRelativeDate, groupByDate } from "@/utils/formatting";
@@ -29,6 +30,7 @@ const filters = ref({
   label_ids: [],
 });
 const previewFile = ref(null);
+const detailsFile = ref(null);
 const sharingFile = ref(null);
 const broken = ref(new Set());
 
@@ -37,9 +39,9 @@ const broken = ref(new Set());
 const sentinel = ref(null);
 let observer = null;
 
-// Group by when the photo was taken; upload time is only a fallback for files
-// without EXIF (the API sends captured_at already resolved).
-const groups = computed(() => groupByDate(filesStore.items, "captured_at"));
+// Grouped by upload date so the headings agree with the date filters. Capture
+// date is shown in the details panel and available as an explicit sort.
+const groups = computed(() => groupByDate(filesStore.items, "created_at"));
 const showEmpty = computed(() => !filesStore.loading && filesStore.items.length === 0);
 
 const hasFilters = computed(() => {
@@ -109,6 +111,7 @@ function photoMenu(event, file) {
     items: [
       { label: "Preview", icon: "fa-eye", action: () => (previewFile.value = file) },
       { label: "Download", icon: "fa-download", action: () => onDownload(file) },
+      { label: "Details", icon: "fa-circle-info", action: () => (detailsFile.value = file) },
       file.permissions.can_share && {
         label: "Share…", icon: "fa-share-nodes", action: () => (sharingFile.value = file),
       },
@@ -220,7 +223,7 @@ function photoMenu(event, file) {
               >
                 <span class="block truncate text-caption font-medium text-white">{{ photo.name }}</span>
                 <span class="block text-caption text-gray-300">
-                  {{ formatRelativeDate(photo.captured_at ?? photo.created_at) }} ·
+                  {{ formatRelativeDate(photo.created_at) }} ·
                   {{ formatFileSize(photo.size) }}
                   <i
                     v-if="photo.image?.location"
@@ -262,5 +265,7 @@ function photoMenu(event, file) {
     />
 
     <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
+
+    <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
   </section>
 </template>

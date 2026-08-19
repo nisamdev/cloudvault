@@ -19,8 +19,10 @@ const expanded = ref(false);
 const preset = ref("");
 
 const SORTS = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
+  { value: "newest", label: "Newest uploaded" },
+  { value: "oldest", label: "Oldest uploaded" },
+  { value: "taken_newest", label: "Newest taken" },
+  { value: "taken_oldest", label: "Oldest taken" },
   { value: "name", label: "Name (A–Z)" },
   { value: "largest", label: "Largest first" },
   { value: "smallest", label: "Smallest first" },
@@ -304,7 +306,9 @@ function clearAll() {
       </div>
 
       <div>
-        <label for="gallery-from" class="mb-1 block text-label font-medium text-gray-600">From</label>
+        <label for="gallery-from" class="mb-1 block text-label font-medium text-gray-600">
+          Uploaded from
+        </label>
         <input
           id="gallery-from"
           type="date"
@@ -315,7 +319,9 @@ function clearAll() {
       </div>
 
       <div>
-        <label for="gallery-to" class="mb-1 block text-label font-medium text-gray-600">To</label>
+        <label for="gallery-to" class="mb-1 block text-label font-medium text-gray-600">
+          Uploaded to
+        </label>
         <input
           id="gallery-to"
           type="date"

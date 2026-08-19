@@ -87,18 +87,21 @@ class StoredFile < ApplicationRecord
     end
   }
 
-  # Photos are ordered by when they were taken, falling back to upload time for
-  # anything without EXIF — otherwise a holiday album uploaded in one go all
-  # lands under today.
+  # Capture time when the file carries EXIF, upload time otherwise.
   CAPTURED_AT = Arel.sql("COALESCE(stored_files.taken_at, stored_files.created_at)")
 
+  # Upload date is the default everywhere, because that is what the date filters
+  # work on and the two must agree. Capture date is available as an explicit
+  # choice rather than a silent override.
   scope :sorted_by, lambda { |key|
     case key
-    when "oldest" then order(Arel.sql("#{CAPTURED_AT} ASC"))
+    when "oldest" then order(created_at: :asc)
+    when "taken_newest" then order(Arel.sql("#{CAPTURED_AT} DESC"))
+    when "taken_oldest" then order(Arel.sql("#{CAPTURED_AT} ASC"))
     when "name" then order(Arel.sql("LOWER(name) ASC"))
     when "largest" then order(size: :desc)
     when "smallest" then order(size: :asc)
-    else order(Arel.sql("#{CAPTURED_AT} DESC"))
+    else order(created_at: :desc)
     end
   }
 

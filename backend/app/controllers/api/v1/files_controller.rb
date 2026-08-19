@@ -39,6 +39,7 @@ module Api
       def show
         render json: {
           file: serialize(@file, detailed: true),
+          details: details_for(@file),
           versions: @file.file_versions.newest_first.map { |v| serialize_version(v) }
         }
       end
@@ -292,6 +293,51 @@ module Api
         return nil if family_id.nil?
 
         Folder.active.find_by(id: folder_id, family_id: family_id)
+      end
+
+      # Everything we know about a file, for the details panel. Kept out of the
+      # list serializer: it costs extra queries and nothing in a list shows it.
+      def details_for(file)
+        blob = file.attachment.attached? ? file.attachment.blob : nil
+
+        {
+          uploaded_at: file.created_at,
+          updated_at: file.updated_at,
+          taken_at: file.taken_at,
+          last_accessed_at: file.last_accessed_at,
+          trashed_at: file.trashed_at,
+          purge_after: file.purge_after,
+          mime_type: file.mime_type,
+          size: file.size,
+          checksum: blob&.checksum,
+          version_number: file.version_number,
+          version_count: file.file_versions.count,
+          visibility: file.visibility,
+          owner: { id: file.user_id, name: file.user.full_name || file.user.email },
+          family: file.family && { id: file.family_id, name: file.family.name },
+          folder: file.folder && { id: file.folder_id, name: file.folder.name, path: file.folder.path },
+          labels: file.labels.map { |l| { id: l.id, name: l.name, color: l.color } },
+          active_share_links: file.shared_links.active.count,
+          image: file.image? ? image_details(file) : nil
+        }
+      end
+
+      def image_details(file)
+        {
+          width: file.image_width,
+          height: file.image_height,
+          megapixels: image_megapixels(file),
+          camera: file.camera,
+          camera_make: file.camera_make,
+          camera_model: file.camera_model,
+          location: file.location? ? { latitude: file.latitude.to_f, longitude: file.longitude.to_f } : nil
+        }
+      end
+
+      def image_megapixels(file)
+        return nil if file.image_width.blank? || file.image_height.blank?
+
+        ((file.image_width * file.image_height) / 1_000_000.0).round(1)
       end
 
       # Replaces the file's labels wholesale with the given set. Ids the caller

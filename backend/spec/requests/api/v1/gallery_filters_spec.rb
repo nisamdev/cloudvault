@@ -162,3 +162,108 @@ RSpec.describe "Api::V1::Files gallery filters" do
     end
   end
 end
+
+RSpec.describe "Api::V1::Files details and date semantics" do
+  let(:owner) { create(:user) }
+
+  describe "date filters use upload time" do
+    it "matches on upload date even when the photo was taken earlier" do
+      # Taken last year, uploaded today: a "today" filter must find it, because
+      # the filter and the gallery headings both work on upload date.
+      create(:stored_file, :image, user: owner, name: "Holiday.jpg",
+             taken_at: 1.year.ago, created_at: Time.current)
+
+      get "/api/v1/files", params: { file_type: "image", date_from: Date.current.to_s },
+          headers: auth_headers_for(owner)
+
+      expect(json["files"].map { |f| f["name"] }).to include("Holiday.jpg")
+    end
+
+    it "does not match on capture date" do
+      create(:stored_file, :image, user: owner, name: "Old.jpg",
+             taken_at: Time.current, created_at: 1.year.ago)
+
+      get "/api/v1/files", params: { file_type: "image", date_from: Date.current.to_s },
+          headers: auth_headers_for(owner)
+
+      expect(json["files"].map { |f| f["name"] }).not_to include("Old.jpg")
+    end
+
+    it "sorts by upload date by default" do
+      recent_upload = create(:stored_file, :image, user: owner, name: "Recent.jpg",
+                             taken_at: 5.years.ago, created_at: 1.minute.ago)
+      create(:stored_file, :image, user: owner, name: "Older.jpg",
+             taken_at: Time.current, created_at: 3.days.ago)
+
+      get "/api/v1/files", params: { file_type: "image" }, headers: auth_headers_for(owner)
+
+      expect(json["files"].first["name"]).to eq(recent_upload.name)
+    end
+
+    it "sorts by capture date when asked explicitly" do
+      create(:stored_file, :image, user: owner, name: "Recent.jpg",
+             taken_at: 5.years.ago, created_at: 1.minute.ago)
+      taken_today = create(:stored_file, :image, user: owner, name: "Older.jpg",
+                           taken_at: Time.current, created_at: 3.days.ago)
+
+      get "/api/v1/files", params: { file_type: "image", sort: "taken_newest" },
+          headers: auth_headers_for(owner)
+
+      expect(json["files"].first["name"]).to eq(taken_today.name)
+    end
+  end
+
+  describe "GET /api/v1/files/:id details" do
+    it "returns the full metadata set" do
+      file = create(:stored_file, :image, :with_attachment, user: owner,
+                    image_width: 4000, image_height: 3000,
+                    taken_at: 2.days.ago, latitude: 51.5007, longitude: -0.1246,
+                    camera_make: "Canon", camera_model: "EOS R6")
+
+      get "/api/v1/files/#{file.id}", headers: auth_headers_for(owner)
+
+      details = json["details"]
+      expect(details["uploaded_at"]).to be_present
+      expect(details["taken_at"]).to be_present
+      expect(details["checksum"]).to be_present
+      expect(details["image"]["megapixels"]).to eq(12.0)
+      expect(details["image"]["camera"]).to eq("Canon EOS R6")
+      expect(details["image"]["location"]).to eq({ "latitude" => 51.5007, "longitude" => -0.1246 })
+    end
+
+    it "omits image details for a document" do
+      file = create(:stored_file, :with_attachment, user: owner)
+
+      get "/api/v1/files/#{file.id}", headers: auth_headers_for(owner)
+
+      expect(json["details"]["image"]).to be_nil
+    end
+
+    it "reports no location when the photo carries none" do
+      file = create(:stored_file, :image, :with_attachment, user: owner)
+
+      get "/api/v1/files/#{file.id}", headers: auth_headers_for(owner)
+
+      expect(json["details"]["image"]["location"]).to be_nil
+    end
+
+    it "counts active share links and kept versions" do
+      file = create(:stored_file, :with_attachment, user: owner)
+      file.shared_links.create!(user: owner)
+      file.file_versions.create!(created_by: owner, version_number: 1, size: 10)
+
+      get "/api/v1/files/#{file.id}", headers: auth_headers_for(owner)
+
+      expect(json["details"]["active_share_links"]).to eq(1)
+      expect(json["details"]["version_count"]).to eq(1)
+    end
+
+    it "is refused to someone who cannot see the file" do
+      file = create(:stored_file, user: owner)
+
+      get "/api/v1/files/#{file.id}", headers: auth_headers_for(create(:user))
+
+      expect(response).to have_http_status(:not_found)
+    end
+  end
+end

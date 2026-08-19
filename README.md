@@ -135,9 +135,10 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   Filter by date (including Today), uploader, visibility, shape, label and whether the photo carries
   a location; sort by date, name or size. Active filters show as removable chips with an
   "N of M match" count
-- **EXIF** — capture date, GPS coordinates and camera are read on upload; the gallery groups and
-  sorts by when a photo was *taken*, falling back to upload time. The preview links coordinates to
-  a map
+- **EXIF** — capture date, GPS coordinates and camera are read on upload
+- **Details panel** — every date (uploaded, taken, modified, last opened, purge date), dimensions,
+  megapixels, camera, coordinates with a map link, folder path, labels, visibility, checksum,
+  version history and active share links
 - **Trash** — restore files and whole folders, delete permanently to reclaim quota, empty the trash,
   with a per-item countdown; a nightly job removes anything past the retention window
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
@@ -156,7 +157,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-277 backend specs and 19 frontend tests, all passing.
+295 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -204,6 +205,9 @@ placeholders that state what belongs on them. See
   every failure path returns nothing rather than raising. Cameras with a dead clock battery report
   1970-era dates, which are rejected. EXIF carries no timezone, so times are read as UTC rather
   than inventing an offset.
+- **Dates mean upload time throughout** — filters, sorting and the gallery's date headings all use
+  it, so they always agree. Capture date is shown in the details panel and offered as an explicit
+  "Newest taken" sort rather than silently changing what a date means.
 - **Date filters resolve in the viewer's timezone** (`users.timezone`), because the gallery's
   "Today" heading uses the browser's clock — interpreting the filter in UTC would disagree with the
   heading for anyone east of Greenwich.
