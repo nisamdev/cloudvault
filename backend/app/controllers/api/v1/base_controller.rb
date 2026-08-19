@@ -17,6 +17,27 @@ module Api
 
       private
 
+      # Where the browser actually reached us — a cloudflared tunnel, a LAN IP,
+      # or localhost. Links handed back to that browser (a QR code to open on a
+      # phone, a share URL to send to someone) must use the same origin, or they
+      # point somewhere the recipient cannot reach.
+      #
+      # Falls back to APP_URL, which is all a mailer has to work with.
+      def frontend_origin
+        raw = request.headers["Origin"].presence || request.headers["Referer"].presence
+        return Rails.configuration.x.app_url if raw.blank?
+
+        uri = URI.parse(raw)
+        return Rails.configuration.x.app_url unless uri.scheme&.start_with?("http") && uri.host.present?
+
+        default_port = uri.scheme == "https" ? 443 : 80
+        port = uri.port && uri.port != default_port ? ":#{uri.port}" : ""
+
+        "#{uri.scheme}://#{uri.host}#{port}"
+      rescue URI::InvalidURIError
+        Rails.configuration.x.app_url
+      end
+
       # Every failure the client sees has this shape, so the SPA has exactly one
       # error path to render (see frontend/src/api/client.js).
       def render_error(message:, code:, status:, details: {})

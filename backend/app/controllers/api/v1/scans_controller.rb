@@ -27,7 +27,12 @@ module Api
                               code: "forbidden", status: :forbidden)
         end
 
-        session = ScanSession.create(user: current_user, folder_id: folder&.id, visibility: visibility)
+        session = ScanSession.create(
+          user: current_user,
+          folder_id: folder&.id,
+          visibility: visibility,
+          base_url: frontend_origin
+        )
 
         render json: session.to_h.merge(qr_svg: session.qr_svg), status: :created
       end

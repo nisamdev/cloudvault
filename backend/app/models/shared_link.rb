@@ -58,10 +58,11 @@ class SharedLink < ApplicationRecord
     update_column(:last_accessed_at, Time.current)
   end
 
-  def url
+  def url(base_url = nil)
     return nil if raw_token.nil?
 
-    "#{Rails.configuration.x.app_url}/share/#{raw_token}"
+    base = base_url.presence || Rails.configuration.x.app_url
+    "#{base.chomp("/")}/share/#{raw_token}"
   end
 
   private

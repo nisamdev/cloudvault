@@ -16,6 +16,18 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: Number(process.env.PORT) || 5173,
+
+    // Vite rejects requests whose Host header it does not recognise, which
+    // blocks every tunnel (cloudflared, ngrok) and any access by LAN IP with a
+    // 403 "This host is not allowed".
+    //
+    // This is the DEV server, reached deliberately through a tunnel while
+    // testing on a phone, so the default is permissive. Set VITE_ALLOWED_HOSTS
+    // (comma-separated) to narrow it. Production serves the built assets from
+    // nginx and never runs this server.
+    allowedHosts: process.env.VITE_ALLOWED_HOSTS
+      ? process.env.VITE_ALLOWED_HOSTS.split(",").map((h) => h.trim())
+      : true,
     // Bind mounts in Docker don't emit inotify events reliably on WSL2.
     watch: { usePolling: true, interval: 300 },
     // Same-origin /api in dev means no CORS preflight and no cookie/SameSite

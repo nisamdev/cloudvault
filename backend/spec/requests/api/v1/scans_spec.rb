@@ -245,3 +245,64 @@ RSpec.describe "Api::V1::Scans" do
     end
   end
 end
+
+RSpec.describe "Links point back to the origin the browser used" do
+  let(:owner) { create(:user) }
+
+  it "uses a tunnel origin for the scan link, not APP_URL" do
+    post "/api/v1/scans",
+         headers: auth_headers_for(owner).merge("Origin" => "https://tasty-pandas.trycloudflare.com"),
+         as: :json
+
+    # A QR code containing "localhost" is unscannable from a phone.
+    expect(json["url"]).to start_with("https://tasty-pandas.trycloudflare.com/scan/")
+  end
+
+  it "uses a LAN address when reached by IP" do
+    post "/api/v1/scans",
+         headers: auth_headers_for(owner).merge("Origin" => "http://192.168.1.50:5273"),
+         as: :json
+
+    expect(json["url"]).to start_with("http://192.168.1.50:5273/scan/")
+  end
+
+  it "falls back to APP_URL when there is no Origin" do
+    post "/api/v1/scans", headers: auth_headers_for(owner), as: :json
+
+    expect(json["url"]).to start_with(Rails.configuration.x.app_url)
+  end
+
+  it "ignores a nonsense Origin rather than building a broken link" do
+    post "/api/v1/scans",
+         headers: auth_headers_for(owner).merge("Origin" => "not a url"),
+         as: :json
+
+    expect(json["url"]).to start_with(Rails.configuration.x.app_url)
+  end
+
+  it "falls back to the Referer when Origin is absent" do
+    post "/api/v1/scans",
+         headers: auth_headers_for(owner).merge("Referer" => "https://phone.example.com/dashboard"),
+         as: :json
+
+    expect(json["url"]).to start_with("https://phone.example.com/scan/")
+  end
+
+  it "drops a default port so the link stays tidy" do
+    post "/api/v1/scans",
+         headers: auth_headers_for(owner).merge("Origin" => "https://vault.example.com:443"),
+         as: :json
+
+    expect(json["url"]).to start_with("https://vault.example.com/scan/")
+  end
+
+  it "applies the same origin to share links" do
+    file = create(:stored_file, :with_attachment, user: owner)
+
+    post "/api/v1/files/#{file.id}/shares",
+         headers: auth_headers_for(owner).merge("Origin" => "https://tasty-pandas.trycloudflare.com"),
+         as: :json
+
+    expect(json["share"]["url"]).to start_with("https://tasty-pandas.trycloudflare.com/share/")
+  end
+end

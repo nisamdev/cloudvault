@@ -41,6 +41,23 @@ local stacks. All of them are configurable in `.env`.
 
 ---
 
+### Testing on a phone
+
+The dev server accepts any Host, so a tunnel works out of the box:
+
+```bash
+cloudflared tunnel --url http://localhost:5273
+```
+
+Open the printed `https://….trycloudflare.com` URL on the phone. Scan links,
+share links and QR codes are built from the origin the browser actually used, so
+they point at the tunnel rather than at `localhost`.
+
+To restrict which hosts the dev server answers, set `VITE_ALLOWED_HOSTS` to a
+comma-separated list.
+
+---
+
 ## Everyday commands
 
 ```bash
@@ -162,7 +179,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-322 backend specs and 19 frontend tests, all passing.
+329 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -206,6 +223,9 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **Links are built from the request's origin**, not from `APP_URL`. A QR code containing
+  `localhost` cannot be scanned from a phone, and a share link created through a tunnel has to be
+  reachable by whoever receives it. `APP_URL` remains the fallback, which is all a mailer has.
 - **The scan token is deliberately weak.** It travels in a URL, so it expires in 20 minutes and can
   only upload — it cannot list, read or delete, and ordinary endpoints reject it because it is not
   an access token. Losing it costs an unwanted upload, nothing more.

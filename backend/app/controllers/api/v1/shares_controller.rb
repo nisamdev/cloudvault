@@ -164,7 +164,9 @@ module Api
           created_at: link.created_at
         }
         # Only ever populated on creation; the token cannot be recovered after.
-        payload[:url] = link.url if include_url
+        # Built from the origin the browser used, so a link created through a
+        # tunnel is reachable by whoever it is sent to.
+        payload[:url] = link.url(frontend_origin) if include_url
         payload
       end
     end

@@ -14,7 +14,7 @@ class ScanSession
 
   attr_reader :user, :folder_id, :visibility, :expires_at
 
-  def self.create(user:, folder_id: nil, visibility: "private", ttl: DEFAULT_TTL)
+  def self.create(user:, folder_id: nil, visibility: "private", ttl: DEFAULT_TTL, base_url: nil)
     expires_at = ttl.from_now
 
     token = JwtService.encode_scan(
@@ -24,7 +24,8 @@ class ScanSession
       expires_in: ttl
     )
 
-    new(user: user, folder_id: folder_id, visibility: visibility, expires_at: expires_at, token: token)
+    new(user: user, folder_id: folder_id, visibility: visibility, expires_at: expires_at,
+        token: token, base_url: base_url)
   end
 
   def self.from_token(token)
@@ -41,16 +42,18 @@ class ScanSession
     )
   end
 
-  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private")
+  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private", base_url: nil)
     @user = user
     @folder_id = folder_id
     @visibility = visibility
     @expires_at = expires_at
     @token = token
+    # The QR code is scanned by a phone, which cannot reach "localhost".
+    @base_url = base_url.presence || Rails.configuration.x.app_url
   end
 
   def url
-    "#{Rails.configuration.x.app_url}/scan/#{@token}"
+    "#{@base_url.chomp("/")}/scan/#{@token}"
   end
 
   # SVG rather than PNG so it stays crisp at any size and needs no image
