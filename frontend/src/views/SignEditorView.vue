@@ -460,8 +460,18 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         </div>
       </main>
 
-      <!-- Properties -->
-      <aside v-if="selected" class="w-64 shrink-0 border-l border-gray-200 bg-white p-4">
+      <!--
+        Always present, never conditional: rendering this only when a field is
+        selected shrinks the page area mid-interaction, so the document jumps
+        the moment you place something. Reserving the width keeps the page
+        still.
+      -->
+      <aside class="w-64 shrink-0 border-l border-gray-200 bg-white p-4">
+        <p v-if="!selected" class="text-body-sm text-gray-400">
+          Select a field to change its size, style or signature.
+        </p>
+
+        <template v-else>
         <h2 class="mb-3 text-label font-medium uppercase tracking-wide text-gray-500">
           {{ selected.type }}
         </h2>
@@ -521,6 +531,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         <p class="mt-4 text-caption text-gray-400">
           Drag to move, pull the corner to resize, Delete to remove.
         </p>
+        </template>
       </aside>
     </div>
 
