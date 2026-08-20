@@ -40,6 +40,67 @@ async function setVisibility(next) {
   }
 }
 
+/* ---- Sharing with a person or a family (AccessGrant) ------------------- */
+
+const grants = ref([]);
+const grantEmail = ref("");
+const grantRole = ref("viewer");
+const grantSubject = ref("person");
+const addingGrant = ref(false);
+const grantError = ref("");
+
+async function loadGrants() {
+  try {
+    const { data } = await api.get(`/files/${props.file.id}/grants`);
+    grants.value = data.grants;
+  } catch {
+    // Not fatal: the rest of the dialog still works without the list.
+  }
+}
+
+async function addGrant() {
+  grantError.value = "";
+  addingGrant.value = true;
+
+  try {
+    const payload =
+      grantSubject.value === "family"
+        ? { family_id: auth.family.id, role: grantRole.value }
+        : { email: grantEmail.value.trim(), role: grantRole.value };
+
+    const { data } = await api.post(`/files/${props.file.id}/grants`, payload);
+
+    // Re-sharing changes the role rather than adding a row, so replace in place.
+    const index = grants.value.findIndex((g) => g.id === data.grant.id);
+    if (index >= 0) grants.value.splice(index, 1, data.grant);
+    else grants.value.unshift(data.grant);
+
+    grantEmail.value = "";
+  } catch (e) {
+    grantError.value = e.userMessage;
+  } finally {
+    addingGrant.value = false;
+  }
+}
+
+async function changeGrantRole(grant, role) {
+  try {
+    const { data } = await api.patch(`/grants/${grant.id}`, { role });
+    grants.value = grants.value.map((g) => (g.id === grant.id ? data.grant : g));
+  } catch (e) {
+    grantError.value = e.userMessage;
+  }
+}
+
+async function removeGrant(grant) {
+  try {
+    await api.delete(`/grants/${grant.id}`);
+    grants.value = grants.value.filter((g) => g.id !== grant.id);
+  } catch (e) {
+    grantError.value = e.userMessage;
+  }
+}
+
 const expiresIn = ref("7d");
 const usePassword = ref(false);
 const password = ref("");
@@ -70,6 +131,7 @@ onMounted(async () => {
 
   document.addEventListener("keydown", onKeydown);
   loadExisting();
+  loadGrants();
 });
 
 onBeforeUnmount(() => {
@@ -238,6 +300,123 @@ async function revoke(share) {
 
           <p v-if="savingVisibility" class="mt-2 text-caption text-gray-500" aria-live="polite">
             Saving…
+          </p>
+        </div>
+
+        <!-- Sharing with someone named, as opposed to anyone with a link. This
+             is what makes "my accountant, this folder, read only" possible
+             without making them part of the family. -->
+        <div class="border-t border-gray-200 pt-5">
+          <h3 class="mb-2 text-label font-medium uppercase tracking-wide text-gray-500">
+            People with access
+          </h3>
+
+          <p v-if="grantError" role="alert" class="mb-3 rounded-base bg-error-50 px-3 py-2 text-body-sm text-error-600">
+            {{ grantError }}
+          </p>
+
+          <ul v-if="grants.length" class="mb-3 space-y-2">
+            <li
+              v-for="grant in grants"
+              :key="grant.id"
+              class="flex items-center gap-3 rounded-base border border-gray-200 p-3"
+            >
+              <i
+                :class="['fas', grant.subject.type === 'family' ? 'fa-users' : 'fa-user', 'text-gray-400']"
+                aria-hidden="true"
+              ></i>
+
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-body-sm font-medium text-gray-800">{{ grant.subject.name }}</p>
+                <p class="truncate text-caption text-gray-500">
+                  <template v-if="grant.subject.type === 'family'">
+                    {{ grant.subject.member_count }} members
+                  </template>
+                  <template v-else>{{ grant.subject.email }}</template>
+                  <span v-if="grant.expired"> · expired</span>
+                </p>
+              </div>
+
+              <label :for="`grant-role-${grant.id}`" class="sr-only">
+                Access for {{ grant.subject.name }}
+              </label>
+              <select
+                :id="`grant-role-${grant.id}`"
+                :value="grant.role"
+                class="rounded-base border border-gray-300 px-2 py-1 text-caption outline-none focus:ring-2 focus:ring-primary-500"
+                @change="changeGrantRole(grant, $event.target.value)"
+              >
+                <option value="viewer">Can view</option>
+                <option value="editor">Can edit</option>
+              </select>
+
+              <button
+                type="button"
+                class="shrink-0 rounded-md p-1.5 text-error-500 transition hover:bg-error-50"
+                :aria-label="`Remove access for ${grant.subject.name}`"
+                @click="removeGrant(grant)"
+              >
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+              </button>
+            </li>
+          </ul>
+
+          <form class="flex flex-wrap items-end gap-2" novalidate @submit.prevent="addGrant">
+            <div v-if="grantSubject === 'person'" class="min-w-40 flex-1">
+              <label for="grant-email" class="sr-only">Their email</label>
+              <input
+                id="grant-email"
+                v-model="grantEmail"
+                type="email"
+                placeholder="Their email address"
+                class="w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <p v-else class="min-w-40 flex-1 rounded-base bg-gray-50 px-3 py-2 text-body-sm text-gray-600">
+              Everyone in {{ auth.family?.name }}
+            </p>
+
+            <label for="grant-role" class="sr-only">Access level</label>
+            <select
+              id="grant-role"
+              v-model="grantRole"
+              class="rounded-base border border-gray-300 px-2 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="viewer">Can view</option>
+              <option value="editor">Can edit</option>
+            </select>
+
+            <button
+              type="submit"
+              :disabled="addingGrant || (grantSubject === 'person' && !grantEmail.trim())"
+              class="rounded-base gradient-main px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-60"
+            >
+              {{ addingGrant ? "Sharing…" : "Share" }}
+            </button>
+          </form>
+
+          <div class="mt-2 flex gap-3 text-caption">
+            <button
+              v-for="option in [
+                { value: 'person', label: 'A person' },
+                { value: 'family', label: auth.family?.name ?? 'My family' },
+              ]"
+              :key="option.value"
+              type="button"
+              :disabled="option.value === 'family' && !auth.family"
+              :aria-pressed="grantSubject === option.value"
+              :class="[
+                'font-medium transition disabled:opacity-40',
+                grantSubject === option.value ? 'text-primary-600 underline' : 'text-gray-500 hover:text-gray-700',
+              ]"
+              @click="grantSubject = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+
+          <p class="mt-2 text-caption text-gray-500">
+            They can open it without a link. Only you can share it on or delete it.
           </p>
         </div>
 

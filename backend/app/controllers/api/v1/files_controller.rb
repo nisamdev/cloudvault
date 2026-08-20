@@ -16,10 +16,18 @@ module Api
         # search should do.
         scope = scope.where(folder_id: params[:folder_id].presence) if params.key?(:folder_id)
 
-        # Family-visible files somebody else put there. Mine are not "shared with
-        # me", so they are excluded.
+        # Anything reaching me from somebody else: what my families share, and
+        # what has been granted to me by name or through a family. My own files
+        # are not "shared with me", so they are excluded.
         if params[:shared_with_me] == "true"
-          scope = scope.where(visibility: "family").where.not(user_id: current_user.id)
+          granted = GrantedResources.new(current_user)
+          from_others = scope.where(visibility: "family")
+          unless granted.empty?
+            from_others = from_others.or(scope.where(id: granted.file_ids))
+                                     .or(scope.where(folder_id: granted.folder_ids))
+          end
+
+          scope = from_others.where.not(user_id: current_user.id)
         end
 
         scope = scope.with_labels(params[:label_ids]) if params[:label_ids].present?
@@ -435,15 +443,24 @@ module Api
 
       # Everything the current user is allowed to see: their own files plus the
       # family's shared ones.
+      # Everything the caller can reach: their own, whatever their families
+      # share, and anything granted to them by name or through a family.
+      #
+      # This mirrors PermissionChecker, which stays the authority for a single
+      # file; the two must not drift, so any rule added there belongs here too.
       def visible_files
-        family_id = current_membership&.family_id
+        mine = StoredFile.where(user_id: current_user.id)
 
-        if family_id
-          StoredFile.where(user_id: current_user.id)
-                    .or(StoredFile.where(family_id: family_id, visibility: %w[family shared_link]))
-        else
-          StoredFile.where(user_id: current_user.id)
+        family_ids = current_user.family_ids
+        if family_ids.any?
+          mine = mine.or(StoredFile.where(family_id: family_ids, visibility: %w[family shared_link]))
         end
+
+        granted = GrantedResources.new(current_user)
+        return mine if granted.empty?
+
+        mine.or(StoredFile.where(id: granted.file_ids))
+            .or(StoredFile.where(folder_id: granted.folder_ids))
       end
 
       # Resolves a folder the caller is actually allowed to put files in.

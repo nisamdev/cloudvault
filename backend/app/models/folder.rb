@@ -29,6 +29,20 @@ class Folder < ApplicationRecord
     chain
   end
 
+  # Every folder beneath this one. Public because sharing a folder has to
+  # reach what is inside it (see GrantedResources).
+  def descendant_ids
+    return [] if new_record?
+
+    ids = []
+    queue = children.pluck(:id)
+    until queue.empty?
+      ids.concat(queue)
+      queue = Folder.where(parent_id: queue).pluck(:id)
+    end
+    ids
+  end
+
   def path
     (ancestors + [ self ]).map(&:name).join("/")
   end
@@ -57,17 +71,5 @@ class Folder < ApplicationRecord
     end
 
     errors.add(:parent_id, "cannot be one of its own subfolders") if descendant_ids.include?(parent_id)
-  end
-
-  def descendant_ids
-    return [] if new_record?
-
-    ids = []
-    queue = children.pluck(:id)
-    until queue.empty?
-      ids.concat(queue)
-      queue = Folder.where(parent_id: queue).pluck(:id)
-    end
-    ids
   end
 end

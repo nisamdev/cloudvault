@@ -50,6 +50,8 @@ Rails.application.routes.draw do
         end
         # Managing links for a file (owner side).
         resources :shares, only: %i[index create]
+        # Sharing with a person or a family, as opposed to a public link.
+        resources :grants, only: %i[index create]
       end
 
       # Phone-as-scanner. create is authenticated (desktop); the token-addressed
@@ -62,7 +64,10 @@ Rails.application.routes.draw do
       post "scans/:token", to: "scans#upload", as: :scan_upload, constraints: scan_token, format: false
       get  "scans/:token/status", to: "scans#status", as: :scan_status, constraints: scan_token, format: false
 
+      resources :grants, only: %i[update destroy]
+
       resources :folders, only: %i[index show create update destroy] do
+        resources :grants, only: %i[index create]
         collection do
           get :trashed
         end

@@ -49,6 +49,19 @@ Deleting and re-sharing are deliberately stricter than editing. Both need
 ownership, or admin/editor standing in the family the file actually lives in —
 never a grant alone.
 
+## Using it
+
+Sharing with a person or a family is the **People with access** section of a
+file's share dialog, or `POST /api/v1/files/:id/grants` (and the same under
+`/folders/:id`) with either an `email` or a `family_id`, plus a role. Re-sharing
+with the same subject changes the role rather than adding a second row nobody
+can see.
+
+A grant needs somebody to point at: sharing with an address that has no account
+fails rather than quietly creating one. Inviting a stranger into the vault is a
+heavier decision than sharing a file, and a public link already covers the case
+where they should not have an account at all.
+
 ## Where it lives
 
 - `PermissionChecker` — the only place these rules exist. Controllers never
