@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { formatFileSize } from "@/utils/formatting";
 import AppDialog from "@/components/ui/AppDialog.vue";
+import ToastStack from "@/components/ui/ToastStack.vue";
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -144,6 +145,7 @@ async function handleLogout() {
 
       <!-- Mounted once for every screen inside the app shell. -->
       <AppDialog />
+      <ToastStack />
     </div>
   </div>
 </template>

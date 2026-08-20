@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import api from "@/api/client";
+import { useDialog } from "@/composables/useDialog";
 
 /**
  * Choose a saved signature, or draw a new one.
@@ -11,9 +12,14 @@ import api from "@/api/client";
 defineProps({
   signatures: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["picked", "saved", "close"]);
+const emit = defineEmits(["picked", "saved", "changed", "close"]);
 
-const mode = ref("saved"); // saved | draw | type
+const dialog = useDialog();
+
+const mode = ref("saved"); // saved | draw | type | phone
+const managing = ref(false);
+const phoneSession = ref(null);
+let poller = null;
 const typed = ref("");
 const saving = ref(false);
 const error = ref("");
@@ -101,6 +107,73 @@ function typedToDataUrl() {
   return scratch.toDataURL("image/png");
 }
 
+/* ------------------------------------------------------------- on a phone */
+
+async function startPhoneCapture() {
+  mode.value = "phone";
+  phoneSession.value = null;
+  error.value = "";
+
+  try {
+    const { data } = await api.post("/signatures/session");
+    phoneSession.value = data;
+    pollForPhone(data.url.split("/signature/").pop());
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
+// The phone cannot reach the desktop, so the desktop asks.
+function pollForPhone(token) {
+  stopPolling();
+
+  poller = setInterval(async () => {
+    try {
+      const { data } = await api.get(`/signatures/session/${token}/status`);
+      if (!data.receipt) return;
+
+      stopPolling();
+      const { data: list } = await api.get("/signatures");
+      const drawn = list.signatures.find((s) => s.id === data.receipt.signature_id);
+
+      emit("changed", list.signatures);
+      if (drawn) {
+        emit("saved", drawn);
+        emit("picked", String(drawn.id));
+      }
+    } catch {
+      // Try again on the next tick.
+    }
+  }, 2500);
+}
+
+function stopPolling() {
+  if (poller) clearInterval(poller);
+  poller = null;
+}
+
+/* -------------------------------------------------------------- managing */
+
+async function makeDefault(signature) {
+  await api.patch(`/signatures/${signature.id}`, { is_default: true });
+  const { data } = await api.get("/signatures");
+  emit("changed", data.signatures);
+}
+
+async function remove(signature) {
+  const ok = await dialog.confirm({
+    title: `Delete "${signature.name}"?`,
+    message: "Documents you have already signed keep their signature.",
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
+
+  await api.delete(`/signatures/${signature.id}`);
+  const { data } = await api.get("/signatures");
+  emit("changed", data.signatures);
+}
+
 async function saveAndUse() {
   saving.value = true;
   error.value = "";
@@ -123,7 +196,10 @@ function onKeydown(event) {
 }
 
 onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  stopPolling();
+  document.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <template>
@@ -160,6 +236,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
               { value: 'saved', label: 'Saved' },
               { value: 'draw', label: 'Draw' },
               { value: 'type', label: 'Type' },
+              { value: 'phone', label: 'On phone' },
             ]"
             :key="option.value"
             type="button"
@@ -170,7 +247,13 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
                 ? 'border-primary-600 bg-primary-50 text-primary-700'
                 : 'border-gray-300 text-gray-600 hover:bg-gray-50',
             ]"
-            @click="option.value === 'draw' ? useDrawing() : (mode = option.value)"
+            @click="
+              option.value === 'draw'
+                ? useDrawing()
+                : option.value === 'phone'
+                  ? startPhoneCapture()
+                  : (mode = option.value)
+            "
           >
             {{ option.label }}
           </button>
@@ -178,16 +261,53 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
         <!-- Saved -->
         <template v-if="mode === 'saved'">
+          <div v-if="signatures.length" class="mb-2 flex justify-end">
+            <button
+              type="button"
+              class="text-body-sm font-medium text-primary-600 hover:underline"
+              @click="managing = !managing"
+            >
+              {{ managing ? "Done" : "Manage" }}
+            </button>
+          </div>
+
           <ul v-if="signatures.length" class="space-y-2">
-            <li v-for="signature in signatures" :key="signature.id">
+            <li
+              v-for="signature in signatures"
+              :key="signature.id"
+              class="flex items-center gap-3 rounded-base border border-gray-200 p-3"
+            >
               <button
                 type="button"
-                class="flex w-full items-center gap-4 rounded-base border border-gray-200 p-3 transition hover:border-primary-400 hover:bg-primary-50"
+                class="flex min-w-0 flex-1 items-center gap-4 text-left"
+                :disabled="managing"
                 @click="emit('picked', String(signature.id))"
               >
                 <img :src="signature.image_url" :alt="signature.name" class="h-12 object-contain" />
-                <span class="text-body-sm text-gray-600">{{ signature.name }}</span>
+                <span class="min-w-0">
+                  <span class="block truncate text-body-sm text-gray-700">{{ signature.name }}</span>
+                  <span v-if="signature.is_default" class="text-caption text-primary-600">Default</span>
+                </span>
               </button>
+
+              <template v-if="managing">
+                <button
+                  v-if="!signature.is_default"
+                  type="button"
+                  class="shrink-0 rounded-base border border-gray-300 px-2 py-1 text-caption font-medium text-gray-600 hover:bg-gray-50"
+                  @click="makeDefault(signature)"
+                >
+                  Make default
+                </button>
+                <button
+                  type="button"
+                  class="shrink-0 rounded-md p-2 text-error-500 hover:bg-error-50"
+                  :aria-label="`Delete ${signature.name}`"
+                  @click="remove(signature)"
+                >
+                  <i class="fas fa-trash" aria-hidden="true"></i>
+                </button>
+              </template>
             </li>
           </ul>
 
@@ -215,6 +335,23 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           </button>
         </template>
 
+        <!-- On a phone -->
+        <template v-else-if="mode === 'phone'">
+          <div v-if="phoneSession" class="text-center">
+            <div class="mx-auto w-48" v-html="phoneSession.qr_svg"></div>
+            <p class="mt-3 text-body-sm text-gray-600">
+              Scan this and draw with your finger — easier than a mouse.
+            </p>
+            <p class="mt-1 flex items-center justify-center gap-2 text-caption text-gray-400">
+              <i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i>
+              Waiting for your phone…
+            </p>
+          </div>
+          <p v-else class="py-8 text-center text-body text-gray-500">
+            <i class="fas fa-circle-notch fa-spin mr-2" aria-hidden="true"></i>Creating a link…
+          </p>
+        </template>
+
         <!-- Type -->
         <template v-else>
           <label for="typed-signature" class="mb-2 block text-body-sm text-gray-600">
@@ -237,7 +374,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
         </template>
       </div>
 
-      <footer v-if="mode !== 'saved'" class="flex justify-end gap-3 border-t border-gray-200 p-5">
+      <footer v-if="mode === 'draw' || mode === 'type'" class="flex justify-end gap-3 border-t border-gray-200 p-5">
         <button
           type="button"
           class="rounded-base border border-gray-300 px-4 py-2 text-body-sm font-medium text-gray-700"

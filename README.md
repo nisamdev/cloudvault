@@ -164,6 +164,8 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   app and no sign-in, photographs each page, reorders them, and saves them as one PDF or separate
   images into the chosen folder. Pages are straightened by EXIF orientation, capped at 2400px and
   contrast-boosted for legibility
+- **Signatures** — drawn, typed, or **drawn on your phone** via a QR code; set a default, rename or
+  delete them from the picker
 - **Sign & fill PDFs** — a full-page editor with a tool palette: text, dates, checkboxes,
   signatures and initials, placed by clicking, then dragged and resized. Signatures are drawn,
   typed or reused from saved ones. The unfilled original is kept as a version
@@ -183,7 +185,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-362 backend specs and 19 frontend tests, all passing.
+376 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -232,6 +234,9 @@ placeholders that state what belongs on them. See
   loader by default as untrusted input; `config/initializers/vips.rb` unblocks that one loader and
   says why.
 - **Signing writes a new version, never in place.** A signed document you cannot un-sign is a trap.
+- **Every action says where the result went.** An upload or a signed document used to leave the
+  screen looking unchanged, with no way to tell where the file had landed. Both now raise a toast
+  naming the folder, with a "Show me" that jumps there and flashes the row.
 - **Field geometry is fractions of the page, not pixels.** Pixel coordinates only hold if the
   preview is rendered at exactly 72dpi; fractions survive any zoom or render width.
 - **An unknown signature id fails the whole request** rather than being dropped, which would leave

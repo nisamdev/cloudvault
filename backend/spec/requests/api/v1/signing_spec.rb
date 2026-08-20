@@ -334,3 +334,163 @@ RSpec.describe "Api::V1 PDF signing" do
     end
   end
 end
+
+RSpec.describe "Api::V1::Signatures management" do
+  let(:owner) { create(:user) }
+
+  def signature_png
+    Vips::Image.black(200, 80).add(255).cast("uchar").colourspace("srgb")
+               .draw_line([ 0 ], 10, 60, 190, 20).pngsave_buffer
+  end
+
+  def create_signature(user = owner, name: nil)
+    signature = user.signatures.new(name: name || "Signature #{user.signatures.count + 1}")
+    signature.image.attach(io: StringIO.new(signature_png), filename: "s.png", content_type: "image/png")
+    signature.save!
+    signature
+  end
+
+  describe "defaults" do
+    it "makes the first signature the default" do
+      first = create_signature
+
+      expect(first.reload).to be_is_default
+    end
+
+    it "does not make later ones default automatically" do
+      create_signature
+      second = create_signature
+
+      expect(second.reload).not_to be_is_default
+    end
+
+    it "moves the default when another is chosen" do
+      first = create_signature
+      second = create_signature
+
+      patch "/api/v1/signatures/#{second.id}", params: { is_default: true },
+            headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(second.reload).to be_is_default
+      # The database has a partial unique index; two defaults cannot coexist.
+      expect(first.reload).not_to be_is_default
+    end
+
+    it "promotes another when the default is deleted" do
+      first = create_signature
+      second = create_signature
+      patch "/api/v1/signatures/#{second.id}", params: { is_default: true },
+            headers: auth_headers_for(owner), as: :json
+
+      delete "/api/v1/signatures/#{second.id}", headers: auth_headers_for(owner)
+
+      # Otherwise the user is left with signatures but no default.
+      expect(first.reload).to be_is_default
+    end
+
+    it "lists the default first" do
+      create_signature(name: "Alpha")
+      second = create_signature(name: "Beta")
+      patch "/api/v1/signatures/#{second.id}", params: { is_default: true },
+            headers: auth_headers_for(owner), as: :json
+
+      get "/api/v1/signatures", headers: auth_headers_for(owner)
+
+      expect(json["signatures"].first["name"]).to eq("Beta")
+      expect(json["signatures"].first["is_default"]).to be true
+    end
+  end
+
+  describe "renaming" do
+    it "renames a signature" do
+      signature = create_signature
+
+      patch "/api/v1/signatures/#{signature.id}", params: { name: "Formal" },
+            headers: auth_headers_for(owner), as: :json
+
+      expect(signature.reload.name).to eq("Formal")
+    end
+
+    it "refuses to touch someone else's" do
+      theirs = create_signature(create(:user))
+
+      patch "/api/v1/signatures/#{theirs.id}", params: { name: "Mine now" },
+            headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:not_found)
+    end
+  end
+
+  describe "drawing one on a phone" do
+    def new_session
+      post "/api/v1/signatures/session", headers: auth_headers_for(owner), as: :json
+      json["url"].split("/signature/").last
+    end
+
+    it "returns a link and a QR code" do
+      post "/api/v1/signatures/session", headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:created)
+      expect(json["url"]).to include("/signature/")
+      expect(json["qr_svg"]).to include("<svg")
+    end
+
+    it "tells the phone whose account it is, without a session" do
+      token = new_session
+
+      get "/api/v1/signatures/session/#{token}"
+
+      expect(response).to have_http_status(:ok)
+      expect(json["account"]).to eq(owner.full_name.presence || owner.email)
+    end
+
+    it "saves what the phone drew against the right account" do
+      token = new_session
+      data_url = "data:image/png;base64,#{Base64.strict_encode64(signature_png)}"
+
+      expect {
+        post "/api/v1/signatures/session/#{token}", params: { image_data: data_url, name: "On phone" },
+             as: :json
+      }.to change(owner.signatures, :count).by(1)
+
+      expect(response).to have_http_status(:created)
+      expect(owner.signatures.order(:id).last.name).to eq("On phone")
+    end
+
+    it "lets the desktop see that it arrived" do
+      token = new_session
+      data_url = "data:image/png;base64,#{Base64.strict_encode64(signature_png)}"
+      post "/api/v1/signatures/session/#{token}", params: { image_data: data_url }, as: :json
+
+      get "/api/v1/signatures/session/#{token}/status", headers: auth_headers_for(owner)
+
+      expect(json["receipt"]).to be_present
+      expect(json["receipt"]["signature_id"]).to eq(owner.signatures.order(:id).last.id)
+    end
+
+    it "rejects an expired link" do
+      token = JwtService.encode_signature(user_id: owner.id, expires_in: -1.minute)
+
+      get "/api/v1/signatures/session/#{token}"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "rejects a scan token replayed here" do
+      scan = JwtService.encode_scan(user_id: owner.id, folder_id: nil, visibility: "private", expires_in: 5.minutes)
+
+      get "/api/v1/signatures/session/#{scan}"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "cannot be used to read anything" do
+      token = new_session
+
+      get "/api/v1/files", headers: { "Authorization" => "Bearer #{token}" }
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+  end
+end

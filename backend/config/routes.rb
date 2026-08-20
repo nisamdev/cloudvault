@@ -61,7 +61,15 @@ Rails.application.routes.draw do
         end
       end
       resources :labels, only: %i[index create update destroy]
-      resources :signatures, only: %i[index create destroy]
+      resources :signatures, only: %i[index create update destroy]
+
+      # Drawing a signature on a phone, same pattern as scanning: the token in
+      # the URL is the credential and can only add a signature.
+      sig_token = { token: %r{[^/]+} }
+      post "signatures/session", to: "signatures#session_create_link"
+      get  "signatures/session/:token/status", to: "signatures#session_status", constraints: sig_token, format: false
+      get  "signatures/session/:token", to: "signatures#session_show", constraints: sig_token, format: false
+      post "signatures/session/:token", to: "signatures#session_create", constraints: sig_token, format: false
 
       resources :shares, only: %i[destroy]
 

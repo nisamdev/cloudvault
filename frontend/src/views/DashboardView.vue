@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useFilesStore } from "@/stores/files";
 import { useLibraryStore } from "@/stores/library";
@@ -16,9 +16,11 @@ import FilterBar from "@/components/files/FilterBar.vue";
 import { useDragAndDrop } from "@/composables/useDragAndDrop";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useDialog } from "@/composables/useDialog";
+import { useToast } from "@/composables/useToast";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import { formatFileSize, formatRelativeDate, fileIcon } from "@/utils/formatting";
 
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const filesStore = useFilesStore();
@@ -26,6 +28,7 @@ const library = useLibraryStore();
 const { dragging, dropTargetId, startDrag, endDrag, onDragOver, onDragLeave } = useDragAndDrop();
 const contextMenu = useContextMenu();
 const dialog = useDialog();
+const toast = useToast();
 
 const search = ref("");
 const visibility = ref("private");
@@ -35,6 +38,19 @@ const detailsFile = ref(null);
 const scanning = ref(false);
 // Ids whose thumbnail failed to load (expired URL, or never generated).
 const brokenThumbnails = reactive(new Set());
+// Rows to flash briefly, so a file that just arrived can be spotted.
+const highlighted = reactive(new Set());
+
+function flash(fileId) {
+  highlighted.add(fileId);
+  setTimeout(() => highlighted.delete(fileId), 4000);
+
+  nextTick(() => {
+    document
+      .querySelector(`[data-file-id="${fileId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
 const labellingFile = ref(null);
 const showNewFolder = ref(false);
 const refreshing = ref(false);
@@ -89,13 +105,17 @@ const heading = computed(() => {
 
 onMounted(async () => {
   await Promise.all([library.fetchFolders(), library.fetchLabels()]);
-  load();
+  await load();
+
+  // Arriving from "Show me" elsewhere in the app.
+  const target = Number(route.query.show);
+  if (target) flash(target);
 });
 
 function load() {
   const { label_ids: barLabels, ...rest } = filters.value;
 
-  filesStore.fetchFiles({
+  return filesStore.fetchFiles({
     // Documents only — photos have their own gallery, as the docs specify
     // ("Files Section" and "Images Section"). Searching still spans both.
     fileType: searching.value ? null : "file",
@@ -420,7 +440,18 @@ async function onDownload(file) {
 // uploaded in the first place.
 function onUploaded(file) {
   library.fetchFolders();
-  if (file.permissions.can_share) sharingFile.value = file;
+  flash(file.id);
+
+  const where = file.folder?.name ?? "Top level";
+  toast.show({
+    message: `Uploaded to ${where}`,
+    detail: file.name,
+    actionLabel: "Show me",
+    action: () => {
+      // Jump to wherever it actually landed, in case the view has moved on.
+      openFolder(file.folder?.id ?? null).then(() => flash(file.id));
+    },
+  });
 }
 </script>
 
@@ -679,9 +710,13 @@ function onUploaded(file) {
         <li
           v-for="file in filesStore.items"
           :key="file.id"
+          :data-file-id="file.id"
           draggable="true"
           :class="[
-            'flex items-center gap-4 rounded-lg border border-gray-200 bg-white p-4 transition',
+            'flex items-center gap-4 rounded-lg border bg-white p-4 transition',
+            highlighted.has(file.id)
+              ? 'border-primary-500 ring-2 ring-primary-200'
+              : 'border-gray-200',
             dragging?.type === 'file' && dragging.id === file.id ? 'opacity-40' : 'hover:shadow-md',
           ]"
           @dragstart="startDrag($event, 'file', file)"

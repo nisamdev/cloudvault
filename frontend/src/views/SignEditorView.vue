@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import api from "@/api/client";
 import SignaturePicker from "@/components/files/SignaturePicker.vue";
+import { useToast } from "@/composables/useToast";
 
 /**
  * Full-page document editor, modelled on the LocalSign editor rather than a
@@ -15,6 +16,7 @@ import SignaturePicker from "@/components/files/SignaturePicker.vue";
  */
 const route = useRoute();
 const router = useRouter();
+const toast = useToast();
 
 const file = ref(null);
 const pages = ref([]);
@@ -117,7 +119,10 @@ function onPageClick(event, pageNumber) {
   tool.value = "select";
 
   if (field.type === "signature" || field.type === "initials") {
-    pickerFor.value = field.id;
+    // Straight to the default if there is one; the picker is still one click away.
+    const preferred = signatures.value.find((s) => s.is_default);
+    if (preferred) field.value = String(preferred.id);
+    else pickerFor.value = field.id;
   } else if (field.type === "date") {
     field.value = new Date().toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
   } else if (field.type === "text") {
@@ -228,6 +233,15 @@ async function save() {
 
     file.value = data.file;
     done.value = true;
+
+    // Says where it went and what happened to the original, so "saved" is not
+    // the end of the story.
+    toast.show({
+      message: `Saved to ${data.file.folder?.name ?? "Top level"}`,
+      detail: `${data.file.name} · version ${data.file.version_number}, original kept`,
+      actionLabel: "Show me",
+      action: () => router.push({ name: "dashboard", query: { show: data.file.id } }),
+    });
   } catch (e) {
     error.value = e.userMessage;
   } finally {
@@ -567,6 +581,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
       :signatures="signatures"
       @picked="onSignaturePicked"
       @saved="onSignatureSaved"
+      @changed="signatures = $event"
       @close="pickerFor = null"
     />
   </div>

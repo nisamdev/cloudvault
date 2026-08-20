@@ -52,6 +52,8 @@ A dedicated section for acting on documents rather than just storing them.
   signatures. `PdfFieldStamper`, `PdfPageRenderer`, `SignEditorView`.
   Still worth taking from LocalSign: assigning fields to other people and
   sending signing requests by email, plus the audit log it keeps.
+- **Signature management + phone capture** (2026-08-20) — defaults, rename,
+  delete, and a QR link to draw one with a finger.
 
 ---
 

@@ -105,6 +105,28 @@ class JwtService
       raise InvalidToken, e.message
     end
 
+    # Lets a phone add one signature and nothing else.
+    def encode_signature(user_id:, expires_in:)
+      now = Time.current
+
+      JWT.encode(
+        { sub: user_id, typ: "signature", iat: now.to_i, exp: (now + expires_in).to_i, jti: SecureRandom.uuid },
+        secret,
+        ALGORITHM
+      )
+    end
+
+    def decode_signature(token)
+      payload, = JWT.decode(token, secret, true, algorithm: ALGORITHM, verify_expiration: true)
+      raise InvalidToken, "unexpected token type" unless payload["typ"] == "signature"
+
+      payload
+    rescue JWT::ExpiredSignature
+      raise InvalidToken, "token expired"
+    rescue JWT::DecodeError => e
+      raise InvalidToken, e.message
+    end
+
     def access_ttl
       ENV.fetch("JWT_ACCESS_TTL_MINUTES", 15).to_i.minutes
     end

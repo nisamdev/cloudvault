@@ -34,6 +34,14 @@ const routes = [
     meta: { public: true, title: "Scan to CloudVault" },
   },
   {
+    // Drawing a signature on a phone. Public for the same reason as /scan: the
+    // token is the credential and the phone is not signed in.
+    path: "/signature/:token",
+    name: "signature-capture",
+    component: () => import("@/views/SignatureCaptureView.vue"),
+    meta: { public: true, title: "Draw your signature" },
+  },
+  {
     // Target of the invitation email link. Public: the recipient may not have
     // an account yet.
     path: "/invitations/:token",
