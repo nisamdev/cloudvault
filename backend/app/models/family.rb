@@ -6,6 +6,7 @@ class Family < ApplicationRecord
   has_many :family_members, dependent: :destroy
   has_many :users, through: :family_members
   has_many :family_invitations, dependent: :destroy
+  has_many :access_grants, as: :subject, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 100 }
   validates :description, length: { maximum: 500 }, allow_blank: true

@@ -11,6 +11,8 @@ class User < ApplicationRecord
   has_many :signatures, dependent: :destroy
   has_many :family_memberships, class_name: "FamilyMember", dependent: :destroy
   has_many :families, through: :family_memberships, source: :family
+  belongs_to :current_family, class_name: "Family", optional: true
+  has_many :access_grants, as: :subject, dependent: :destroy
   has_many :owned_families, class_name: "Family", foreign_key: :owner_id,
            inverse_of: :owner, dependent: :restrict_with_error
 
@@ -27,10 +29,19 @@ class User < ApplicationRecord
 
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 
-  # A user belongs to at most one family in Phase 1 (see QUICK_REFERENCE.md).
-  def primary_membership
-    family_memberships.includes(:family).order(:created_at).first
+  # The family the app is currently showing. A user may belong to several, or
+  # to none at all — an account is useful on its own, and everything in it is
+  # private until it is deliberately shared.
+  def current_membership
+    return nil if family_memberships.empty?
+
+    from_choice = family_memberships.find_by(family_id: current_family_id) if current_family_id
+    from_choice || family_memberships.includes(:family).order(:created_at).first
   end
+
+  # Kept as the old name so the many call sites that mean "the family I am
+  # working in" keep working while the rest catches up.
+  alias primary_membership current_membership
 
   def storage_remaining
     [ storage_quota - storage_used, 0 ].max

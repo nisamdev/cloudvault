@@ -110,3 +110,124 @@ RSpec.describe PermissionChecker do
     end
   end
 end
+
+RSpec.describe PermissionChecker, "with grants" do
+  let(:owner) { create(:user) }
+  let(:family) { create(:family, owner: owner) }
+  let(:outsider) { create(:user) }
+  let(:viewer_member) { create(:user).tap { |u| create(:family_member, family: family, user: u, role: "viewer") } }
+
+  def grant(resource, to:, role: "viewer")
+    AccessGrant.create!(resource: resource, subject: to, role: role, granted_by: owner)
+  end
+
+  # The point of the whole thing: hand one folder to one person, read only,
+  # without making them part of the family.
+  describe "sharing with one person" do
+    let(:file) { create(:stored_file, user: owner, visibility: "private") }
+
+    it "gives no access without a grant" do
+      expect(described_class.can_view?(outsider, file)).to be false
+    end
+
+    it "lets a named person view a private file" do
+      grant(file, to: outsider)
+
+      expect(described_class.can_view?(outsider, file)).to be true
+      expect(described_class.can_edit?(outsider, file)).to be false
+    end
+
+    it "can hand over editing too" do
+      grant(file, to: outsider, role: "editor")
+
+      expect(described_class.can_edit?(outsider, file)).to be true
+    end
+
+    # Access should not spread without the owner's say-so.
+    it "never lets a guest re-share or delete" do
+      grant(file, to: outsider, role: "editor")
+
+      expect(described_class.can_share?(outsider, file)).to be false
+      expect(described_class.can_delete?(outsider, file)).to be false
+    end
+
+    it "stops when the grant expires" do
+      grant(file, to: outsider).update!(expires_at: 1.hour.ago)
+
+      expect(described_class.can_view?(outsider, file)).to be false
+    end
+  end
+
+  describe "a grant on a folder" do
+    let(:folder) { create(:folder, user: owner, name: "Tax 2026") }
+    let(:sub) { create(:folder, user: owner, name: "Receipts", parent: folder) }
+    let(:file) { create(:stored_file, user: owner, folder: sub, visibility: "private") }
+
+    it "reaches everything inside it, however deep" do
+      grant(folder, to: outsider)
+
+      expect(described_class.can_view?(outsider, file)).to be true
+      expect(described_class.can_view_folder?(outsider, sub)).to be true
+    end
+
+    it "does not reach a file outside it" do
+      grant(folder, to: outsider)
+      elsewhere = create(:stored_file, user: owner, visibility: "private")
+
+      expect(described_class.can_view?(outsider, elsewhere)).to be false
+    end
+
+    # "Everything in here is read-only, except this one thing."
+    it "is overridden by a grant closer to the file" do
+      grant(folder, to: outsider, role: "viewer")
+      grant(file, to: outsider, role: "editor")
+
+      expect(described_class.can_edit?(outsider, file)).to be true
+    end
+  end
+
+  describe "sharing with a whole family" do
+    let(:other_family) { create(:family, owner: create(:user)) }
+    let(:cousin) { create(:user).tap { |u| create(:family_member, family: other_family, user: u, role: "editor") } }
+    let(:file) { create(:stored_file, user: owner, visibility: "private") }
+
+    it "reaches every member of that family" do
+      grant(file, to: other_family)
+
+      expect(described_class.can_view?(cousin, file)).to be true
+    end
+
+    it "stops reaching them when they leave" do
+      grant(file, to: other_family)
+      cousin.family_memberships.destroy_all
+
+      expect(described_class.can_view?(cousin.reload, file)).to be false
+    end
+
+    # Between two grants the more specific one wins.
+    it "lets a grant naming the person beat one naming their family" do
+      grant(file, to: other_family, role: "editor")
+      grant(file, to: cousin, role: "viewer")
+
+      expect(described_class.can_edit?(cousin, file)).to be false
+      expect(described_class.can_view?(cousin, file)).to be true
+    end
+  end
+
+  # Being handed a read-only link to something you can already edit as a member
+  # of its family should not quietly demote you.
+  it "never takes away access someone already had" do
+    file = create(:stored_file, user: owner, family: family, visibility: "family")
+    editor_member = create(:user).tap { |u| create(:family_member, family: family, user: u, role: "editor") }
+    grant(file, to: editor_member, role: "viewer")
+
+    expect(described_class.can_edit?(editor_member, file)).to be true
+  end
+
+  it "does not promote a family viewer just because the file was shared with them" do
+    file = create(:stored_file, user: owner, family: family, visibility: "family")
+    grant(file, to: viewer_member, role: "viewer")
+
+    expect(described_class.can_edit?(viewer_member, file)).to be false
+  end
+end
