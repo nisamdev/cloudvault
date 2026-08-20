@@ -28,6 +28,9 @@ gem "exifr", "~> 1.4"
 # the phone capture page.
 gem "prawn", "~> 2.5"
 gem "rqrcode", "~> 3.0"
+# Overlays a signature onto an existing PDF page without rewriting the file.
+# MIT-licensed, unlike the usual alternative (HexaPDF is AGPL or commercial).
+gem "combine_pdf", "~> 1.0"
 
 # --- Background jobs --------------------------------------------------------
 gem "sidekiq", "~> 8.0"

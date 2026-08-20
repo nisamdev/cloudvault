@@ -9,6 +9,7 @@ import LabelPicker from "@/components/files/LabelPicker.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
 import ScanModal from "@/components/files/ScanModal.vue";
+import SignModal from "@/components/files/SignModal.vue";
 import FolderTree from "@/components/files/FolderTree.vue";
 import FolderRow from "@/components/files/FolderRow.vue";
 import FilterBar from "@/components/files/FilterBar.vue";
@@ -31,6 +32,7 @@ const sharingFile = ref(null);
 const previewFile = ref(null);
 const detailsFile = ref(null);
 const scanning = ref(false);
+const signingFile = ref(null);
 // Ids whose thumbnail failed to load (expired URL, or never generated).
 const brokenThumbnails = reactive(new Set());
 const labellingFile = ref(null);
@@ -215,6 +217,9 @@ function fileMenu(event, file) {
       { label: "Preview", icon: "fa-eye", action: () => (previewFile.value = file) },
       { label: "Download", icon: "fa-download", action: () => onDownload(file) },
       { label: "Details", icon: "fa-circle-info", action: () => (detailsFile.value = file) },
+      file.mime_type === "application/pdf" && file.permissions.can_edit && {
+        label: "Sign…", icon: "fa-signature", action: () => (signingFile.value = file),
+      },
       file.permissions.can_share && {
         label: "Share…", icon: "fa-share-nodes", action: () => (sharingFile.value = file),
       },
@@ -794,6 +799,13 @@ function onUploaded(file) {
       <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
 
       <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
+
+      <SignModal
+        v-if="signingFile"
+        :file="signingFile"
+        @signed="library.fetchFolders()"
+        @close="signingFile = null"
+      />
 
       <ScanModal
         v-if="scanning"

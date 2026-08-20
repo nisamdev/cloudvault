@@ -6,6 +6,7 @@ class User < ApplicationRecord
   ROLES = %w[owner admin editor viewer].freeze
 
   has_many :refresh_tokens, dependent: :destroy
+  has_many :signatures, dependent: :destroy
   has_many :family_memberships, class_name: "FamilyMember", dependent: :destroy
   has_many :families, through: :family_memberships, source: :family
   has_many :owned_families, class_name: "Family", foreign_key: :owner_id,

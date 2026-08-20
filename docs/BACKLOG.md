@@ -10,10 +10,9 @@ Items move out of here as they ship.
 ### Utility area — document tools
 A dedicated section for acting on documents rather than just storing them.
 
-- **Sign a PDF** — draw or upload a signature, place it on a page, flatten it
-  into the file. Keep the original as a version so the unsigned copy survives.
-  Needs a client-side PDF renderer to position the signature (pdf.js) and a
-  server-side writer to stamp it (HexaPDF or Prawn overlay).
+- ~~**Sign a PDF**~~ — shipped. Signatures are drawn on a canvas and reused;
+  pages render server-side through libvips/poppler so the browser needs no PDF
+  library; the unsigned original is kept as a version.
 - Merge several PDFs into one, split a PDF, reorder or delete pages
 - Rotate pages, compress a PDF, convert images to PDF outside the scan flow
 - Extract text (OCR) so scans become searchable — tesseract, and it would feed
@@ -42,6 +41,14 @@ A dedicated section for acting on documents rather than just storing them.
 - Railway config exists (`infra/railway/`) but has never been run
 - TLS for phone access: Tailscale, or Caddy with a local CA. Needed before
   trusting this with passports over anything but localhost
+
+---
+
+## Shipped
+
+- **PDF signing** (2026-08-20) — `PdfSigner`, `PdfPageRenderer`, saved
+  signatures, placement UI. Still worth adding: multiple signatures per
+  document in one pass, initials/date stamps, and a signing audit trail.
 
 ---
 

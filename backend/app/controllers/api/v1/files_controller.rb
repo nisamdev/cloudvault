@@ -3,7 +3,7 @@
 module Api
   module V1
     class FilesController < BaseController
-      before_action :set_file, only: %i[show update destroy download restore preview purge]
+      before_action :set_file, only: %i[show update destroy download restore preview purge pages sign]
 
       # GET /api/v1/files
       # Params: folder_id, file_type (file|image), trashed, q, page, per_page
@@ -226,7 +226,84 @@ module Api
         render json: payload
       end
 
+      # GET /api/v1/files/:id/pages
+      # Page images for the signing UI, so the browser needs no PDF renderer.
+      def pages
+        unless pdf?(@file)
+          return render_error(message: "That file is not a PDF.",
+                              code: "not_a_pdf", status: :unprocessable_content)
+        end
+
+        renderer = PdfPageRenderer.new(@file.attachment.download)
+
+        render json: {
+          page_count: renderer.page_count,
+          pages: renderer.pages.map do |page|
+            {
+              number: page[:number],
+              width: page[:width],
+              height: page[:height],
+              # Inline data rather than a URL: an <img> cannot send the bearer
+              # token, and these are throwaway renders not worth storing.
+              image: "data:image/png;base64,#{Base64.strict_encode64(page[:png])}"
+            }
+          end
+        }
+      end
+
+      # POST /api/v1/files/:id/sign
+      # Stamps a saved signature onto the PDF, keeping the unsigned original as
+      # a version — a signed document you cannot un-sign is a trap.
+      def sign
+        authorize!(:edit) or return
+
+        unless pdf?(@file)
+          return render_error(message: "That file is not a PDF.",
+                              code: "not_a_pdf", status: :unprocessable_content)
+        end
+
+        signature = current_user.signatures.find_by(id: params[:signature_id])
+        if signature.nil? || !signature.image.attached?
+          return render_error(message: "We couldn't find that signature.",
+                              code: "signature_not_found", status: :not_found)
+        end
+
+        placements = Array(params[:placements]).map do |placement|
+          PdfSigner::Placement.new(
+            page: placement[:page].to_i,
+            x: placement[:x].to_f,
+            y: placement[:y].to_f,
+            width: placement[:width].to_f
+          )
+        end
+
+        signed = PdfSigner.new(@file.attachment.download, signature.image.download).call(placements)
+
+        FileUploader
+          .new(user: current_user, family: current_family)
+          .call(signed_upload(signed, @file.name), replaces: @file)
+
+        render json: { file: serialize(@file.reload, detailed: true) }
+      rescue PdfSigner::Error => e
+        render_error(message: e.message, code: "signing_failed", status: :unprocessable_content)
+      end
+
       private
+
+      def pdf?(file)
+        file.mime_type == "application/pdf" && file.attachment.attached?
+      end
+
+      # The signed PDF is built in memory; FileUploader expects an upload.
+      def signed_upload(bytes, filename)
+        tempfile = Tempfile.new([ "signed", ".pdf" ], binmode: true)
+        tempfile.write(bytes)
+        tempfile.rewind
+
+        ActionDispatch::Http::UploadedFile.new(
+          tempfile: tempfile, filename: filename, type: "application/pdf"
+        )
+      end
 
       TEXT_PREVIEW_LIMIT = 512 * 1024 # 512 KB is plenty to read; more just hangs the tab.
 

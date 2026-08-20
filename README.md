@@ -164,6 +164,8 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   app and no sign-in, photographs each page, reorders them, and saves them as one PDF or separate
   images into the chosen folder. Pages are straightened by EXIF orientation, capped at 2400px and
   contrast-boosted for legibility
+- **Sign a PDF** — draw a signature once, reuse it anywhere; position it on a rendered page and
+  stamp it in. The unsigned original is kept as a version
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
   PDFs, video, audio and text render inline; ← → step through the list, Escape closes
 - **Context menus** — right-click any file, folder, tree node, label, or empty space; full keyboard
@@ -180,7 +182,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-332 backend specs and 19 frontend tests, all passing.
+350 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -224,6 +226,11 @@ placeholders that state what belongs on them. See
 - **The ZIP link carries a short-lived scoped token** (5 min, bound to one folder id) because a
   browser navigation cannot send an Authorization header. Archive paths are sanitised against
   zip-slip.
+- **PDF pages render server-side.** libvips reads PDFs through poppler, so the signing UI positions
+  a signature on a plain PNG and never loads a PDF library in the browser. libvips blocks that
+  loader by default as untrusted input; `config/initializers/vips.rb` unblocks that one loader and
+  says why.
+- **Signing writes a new version, never in place.** A signed document you cannot un-sign is a trap.
 - **The scan dialog polls for a receipt.** The phone and the desktop share no connection, so the
   phone leaves a short-lived note in Redis and the desktop asks for it. Without that the QR code sat
   there after the phone had finished. A failed receipt write never fails the upload itself.

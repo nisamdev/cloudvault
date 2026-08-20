@@ -29,6 +29,8 @@ Rails.application.routes.draw do
         member do
           get    :download
           get    :preview
+          get    :pages
+          post   :sign
           post   :restore
           delete :purge
         end
@@ -59,6 +61,7 @@ Rails.application.routes.draw do
         end
       end
       resources :labels, only: %i[index create update destroy]
+      resources :signatures, only: %i[index create destroy]
 
       resources :shares, only: %i[destroy]
 
