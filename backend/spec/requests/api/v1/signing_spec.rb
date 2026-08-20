@@ -108,8 +108,8 @@ RSpec.describe "Api::V1 PDF signing" do
       original_bytes = file.attachment.download
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id,
-                     placements: [ { page: 1, x: 0.5, y: 0.7, width: 0.25 } ] },
+           params: { fields: [ { type: "signature", page: 1, x: 0.5, y: 0.7,
+                                 width: 0.25, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       expect(response).to have_http_status(:ok)
@@ -127,7 +127,8 @@ RSpec.describe "Api::V1 PDF signing" do
       signature = saved_signature
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id, placements: [ { page: 1, x: 0.4, y: 0.6, width: 0.3 } ] },
+           params: { fields: [ { type: "signature", page: 1, x: 0.4, y: 0.6,
+                                 width: 0.3, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       signed = file.reload.attachment.download
@@ -140,7 +141,8 @@ RSpec.describe "Api::V1 PDF signing" do
       signature = saved_signature
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id, placements: [ { page: 2, x: 0.3, y: 0.5, width: 0.2 } ] },
+           params: { fields: [ { type: "signature", page: 2, x: 0.3, y: 0.5,
+                                 width: 0.2, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       expect(response).to have_http_status(:ok)
@@ -151,7 +153,8 @@ RSpec.describe "Api::V1 PDF signing" do
       signature = saved_signature
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id, placements: [ { page: 99, x: 0.3, y: 0.5, width: 0.2 } ] },
+           params: { fields: [ { type: "signature", page: 99, x: 0.3, y: 0.5,
+                                 width: 0.2, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
@@ -163,7 +166,8 @@ RSpec.describe "Api::V1 PDF signing" do
       theirs = saved_signature(create(:user))
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: theirs.id, placements: [ { page: 1, x: 0.3, y: 0.5, width: 0.2 } ] },
+           params: { fields: [ { type: "signature", page: 1, x: 0.3, y: 0.5,
+                                 width: 0.2, height: 0.07, value: theirs.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       expect(response).to have_http_status(:not_found)
@@ -174,7 +178,8 @@ RSpec.describe "Api::V1 PDF signing" do
       signature = saved_signature(viewer)
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id, placements: [ { page: 1, x: 0.3, y: 0.5, width: 0.2 } ] },
+           params: { fields: [ { type: "signature", page: 1, x: 0.3, y: 0.5,
+                                 width: 0.2, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(viewer), as: :json
 
       expect(response).to have_http_status(:forbidden)
@@ -185,43 +190,147 @@ RSpec.describe "Api::V1 PDF signing" do
       signature = saved_signature
 
       post "/api/v1/files/#{file.id}/sign",
-           params: { signature_id: signature.id, placements: [ { page: 1, x: 0.3, y: 0.5, width: 0.2 } ] },
+           params: { fields: [ { type: "signature", page: 1, x: 0.3, y: 0.5,
+                                 width: 0.2, height: 0.07, value: signature.id.to_s } ] },
            headers: auth_headers_for(owner), as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
     end
+
+    it "fills text, dates and checkboxes in the same pass" do
+      file = pdf_file
+      signature = saved_signature
+
+      post "/api/v1/files/#{file.id}/sign",
+           params: { fields: [
+             { type: "text", page: 1, x: 0.1, y: 0.2, width: 0.4, height: 0.04, value: "Nisam" },
+             { type: "date", page: 1, x: 0.1, y: 0.3, width: 0.2, height: 0.03, value: "20 August 2026" },
+             { type: "checkbox", page: 1, x: 0.1, y: 0.4, width: 0.03, height: 0.02, value: true },
+             { type: "signature", page: 2, x: 0.3, y: 0.5, width: 0.25, height: 0.07, value: signature.id.to_s }
+           ] },
+           headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(file.reload.version_number).to eq(2)
+    end
+
+    it "refuses a request with nothing placed" do
+      file = pdf_file
+
+      post "/api/v1/files/#{file.id}/sign", params: { fields: [] },
+           headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(json["error"]["code"]).to eq("no_fields")
+    end
+
+    it "refuses the whole request if any signature is not yours" do
+      file = pdf_file
+      theirs = saved_signature(create(:user))
+
+      post "/api/v1/files/#{file.id}/sign",
+           params: { fields: [
+             { type: "signature", page: 1, x: 0.3, y: 0.5, width: 0.2, height: 0.07, value: theirs.id.to_s },
+             { type: "text", page: 1, x: 0.1, y: 0.2, width: 0.3, height: 0.04, value: "Still fills" }
+           ] },
+           headers: auth_headers_for(owner), as: :json
+
+      # Dropping it quietly would leave the signer believing they had signed.
+      expect(response).to have_http_status(:not_found)
+      expect(file.reload.version_number).to eq(1)
+    end
+
+    it "refuses when every field was left empty" do
+      file = pdf_file
+
+      post "/api/v1/files/#{file.id}/sign",
+           params: { fields: [ { type: "text", page: 1, x: 0.1, y: 0.2,
+                                 width: 0.3, height: 0.04, value: "" } ] },
+           headers: auth_headers_for(owner), as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(json["error"]["code"]).to eq("no_fields")
+      # No pointless version for a document nothing was written on.
+      expect(file.reload.version_number).to eq(1)
+    end
   end
 
-  describe PdfSigner do
-    it "clamps an absurdly large signature rather than covering the page" do
-      signed = described_class.new(pdf_bytes, signature_png).call(
-        [ described_class::Placement.new(page: 1, x: 0, y: 0, width: 50) ]
+  describe PdfFieldStamper do
+    def field(type, **attrs)
+      described_class::Field.new(
+        { type: type, page: 1, x: 0.2, y: 0.3, width: 0.3, height: 0.05 }.merge(attrs)
       )
-
-      expect(signed[0, 5]).to eq("%PDF-")
     end
 
-    it "accepts several placements on one page" do
-      signed = described_class.new(pdf_bytes, signature_png).call([
-        described_class::Placement.new(page: 1, x: 0.1, y: 0.2, width: 0.2),
-        described_class::Placement.new(page: 1, x: 0.6, y: 0.8, width: 0.2)
-      ])
-
-      expect(CombinePDF.parse(signed).pages.size).to eq(2)
+    def stamp(fields, images: { "sig" => signature_png })
+      described_class.new(pdf_bytes, images: images).call(fields)
     end
 
-    it "refuses to run with no placements" do
+    it "stamps text" do
+      out = stamp([ field("text", value: "Nisam Kalampulan", font_size: 12, bold: true) ])
+      expect(out[0, 5]).to eq("%PDF-")
+    end
+
+    it "stamps a date" do
+      expect(stamp([ field("date", value: "20 August 2026") ])[0, 5]).to eq("%PDF-")
+    end
+
+    it "stamps a checkbox without relying on a glyph the font lacks" do
+      # Helvetica has no check mark in WinAnsi; it is drawn as two strokes.
+      expect(stamp([ field("checkbox", value: true) ])[0, 5]).to eq("%PDF-")
+    end
+
+    it "stamps a saved signature by id" do
+      expect(stamp([ field("signature", value: "sig") ])[0, 5]).to eq("%PDF-")
+    end
+
+    it "stamps a signature drawn inline as a data URL" do
+      data_url = "data:image/png;base64,#{Base64.strict_encode64(signature_png)}"
+
+      expect(stamp([ field("signature", value: data_url) ], images: {})[0, 5]).to eq("%PDF-")
+    end
+
+    it "leaves the page count alone" do
+      out = stamp([ field("text", value: "hello"), field("signature", page: 2, value: "sig") ])
+
+      expect(CombinePDF.parse(out).pages.size).to eq(2)
+    end
+
+    it "draws nothing for an empty text field but still stamps the rest" do
+      out = stamp([ field("text", value: ""), field("signature", value: "sig", y: 0.6) ])
+
+      expect(out[0, 5]).to eq("%PDF-")
+    end
+
+    it "ignores an unknown field type" do
       expect {
-        described_class.new(pdf_bytes, signature_png).call([])
-      }.to raise_error(described_class::Error, /No placements/)
+        stamp([ field("barcode", value: "x") ])
+      }.to raise_error(described_class::Error, /Nothing to stamp/)
+    end
+
+    it "clamps geometry that would cover the whole page" do
+      expect(stamp([ field("signature", value: "sig", width: 50, height: 50) ])[0, 5]).to eq("%PDF-")
+    end
+
+    it "refuses a page that does not exist" do
+      expect {
+        stamp([ field("text", page: 99, value: "hi") ])
+      }.to raise_error(described_class::Error, /does not exist/)
     end
 
     it "reports a file that is not a PDF" do
       expect {
-        described_class.new("just some text", signature_png).call(
-          [ described_class::Placement.new(page: 1, x: 0.1, y: 0.1, width: 0.2) ]
-        )
+        described_class.new("just some text").call([ field("text", value: "hi") ])
       }.to raise_error(described_class::Error)
+    end
+
+    it "keeps going when one field is broken" do
+      out = stamp([
+        field("signature", value: "missing-id"),
+        field("text", value: "This still lands", page: 1, y: 0.6)
+      ])
+
+      expect(out[0, 5]).to eq("%PDF-")
     end
   end
 end

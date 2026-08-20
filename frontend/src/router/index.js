@@ -42,6 +42,14 @@ const routes = [
     meta: { public: true, title: "Join a family" },
   },
   {
+    // A full page, not a dialog: signing is a task you sit inside. Deliberately
+    // outside AppLayout so the editor owns the whole screen.
+    path: "/files/:id/sign",
+    name: "sign-editor",
+    component: () => import("@/views/SignEditorView.vue"),
+    meta: { title: "Sign document" },
+  },
+  {
     path: "/family/setup",
     name: "family-setup",
     component: () => import("@/views/FamilySetupView.vue"),

@@ -252,8 +252,9 @@ module Api
       end
 
       # POST /api/v1/files/:id/sign
-      # Stamps a saved signature onto the PDF, keeping the unsigned original as
-      # a version — a signed document you cannot un-sign is a trap.
+      #
+      # Flattens the editor's fields onto the PDF, keeping the unfilled original
+      # as a version — a signed document you cannot un-sign is a trap.
       def sign
         authorize!(:edit) or return
 
@@ -262,29 +263,30 @@ module Api
                               code: "not_a_pdf", status: :unprocessable_content)
         end
 
-        signature = current_user.signatures.find_by(id: params[:signature_id])
-        if signature.nil? || !signature.image.attached?
+        fields = build_fields.select { |field| filled?(field) }
+        if fields.empty?
+          return render_error(message: "Nothing was placed on the document.",
+                              code: "no_fields", status: :unprocessable_content)
+        end
+
+        images = signature_images(fields)
+        missing = fields.select { |f| signature_field?(f) && !images.key?(f.value.to_s) && !inline?(f.value) }
+
+        # Silently dropping an unknown signature would leave someone believing
+        # they had signed when the page is blank.
+        if missing.any?
           return render_error(message: "We couldn't find that signature.",
                               code: "signature_not_found", status: :not_found)
         end
 
-        placements = Array(params[:placements]).map do |placement|
-          PdfSigner::Placement.new(
-            page: placement[:page].to_i,
-            x: placement[:x].to_f,
-            y: placement[:y].to_f,
-            width: placement[:width].to_f
-          )
-        end
-
-        signed = PdfSigner.new(@file.attachment.download, signature.image.download).call(placements)
+        stamped = PdfFieldStamper.new(@file.attachment.download, images: images).call(fields)
 
         FileUploader
           .new(user: current_user, family: current_family)
-          .call(signed_upload(signed, @file.name), replaces: @file)
+          .call(signed_upload(stamped, @file.name), replaces: @file)
 
         render json: { file: serialize(@file.reload, detailed: true) }
-      rescue PdfSigner::Error => e
+      rescue PdfFieldStamper::Error => e
         render_error(message: e.message, code: "signing_failed", status: :unprocessable_content)
       end
 
@@ -292,6 +294,53 @@ module Api
 
       def pdf?(file)
         file.mime_type == "application/pdf" && file.attachment.attached?
+      end
+
+      def build_fields
+        Array(params[:fields]).map do |field|
+          PdfFieldStamper::Field.new(
+            type: field[:type],
+            page: field[:page].to_i,
+            x: field[:x].to_f,
+            y: field[:y].to_f,
+            width: field[:width].to_f,
+            height: field[:height].to_f,
+            value: field[:value],
+            font_size: field[:font_size],
+            bold: field[:bold].to_s == "true",
+            italic: field[:italic].to_s == "true",
+            align: field[:align],
+            color: field[:color]
+          )
+        end
+      end
+
+      def signature_field?(field)
+        %w[signature initials].include?(field.type.to_s)
+      end
+
+      def inline?(value)
+        value.to_s.start_with?("data:image/")
+      end
+
+      # An empty text box is a field the user placed and never filled; stamping
+      # it would create a new version that changes nothing.
+      def filled?(field)
+        return field.value.to_s == "true" if field.type.to_s == "checkbox"
+
+        field.value.to_s.strip.present?
+      end
+
+      # Signature fields carry a saved signature's id; resolve those to bytes
+      # once, here, so the stamper never touches the database.
+      def signature_images(fields)
+        ids = fields.select { |f| %w[signature initials].include?(f.type.to_s) }
+                    .map(&:value)
+                    .select { |v| v.to_s.match?(/\A\d+\z/) }
+
+        current_user.signatures.where(id: ids).each_with_object({}) do |signature, images|
+          images[signature.id.to_s] = signature.image.download if signature.image.attached?
+        end
       end
 
       # The signed PDF is built in memory; FileUploader expects an upload.

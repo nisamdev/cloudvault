@@ -164,8 +164,9 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
   app and no sign-in, photographs each page, reorders them, and saves them as one PDF or separate
   images into the chosen folder. Pages are straightened by EXIF orientation, capped at 2400px and
   contrast-boosted for legibility
-- **Sign a PDF** — draw a signature once, reuse it anywhere; position it on a rendered page and
-  stamp it in. The unsigned original is kept as a version
+- **Sign & fill PDFs** — a full-page editor with a tool palette: text, dates, checkboxes,
+  signatures and initials, placed by clicking, then dragged and resized. Signatures are drawn,
+  typed or reused from saved ones. The unfilled original is kept as a version
 - **Preview** — click a file name (or the eye icon / context menu) to view it in place: images,
   PDFs, video, audio and text render inline; ← → step through the list, Escape closes
 - **Context menus** — right-click any file, folder, tree node, label, or empty space; full keyboard
@@ -182,7 +183,7 @@ Login and registration are rate limited (5 attempts / 20s per IP *and* per email
 - **Permissions** — enforced server-side by `PermissionChecker` on every request
 - **Screens** — sign in, register, family setup, invitation acceptance, dashboard (files)
 
-350 backend specs and 19 frontend tests, all passing.
+362 backend specs and 19 frontend tests, all passing.
 
 **Not built yet:** the Shared screen, the Settings screen, OAuth sign-in. Those screens are routed
 placeholders that state what belongs on them. See
@@ -231,6 +232,11 @@ placeholders that state what belongs on them. See
   loader by default as untrusted input; `config/initializers/vips.rb` unblocks that one loader and
   says why.
 - **Signing writes a new version, never in place.** A signed document you cannot un-sign is a trap.
+- **Field geometry is fractions of the page, not pixels.** Pixel coordinates only hold if the
+  preview is rendered at exactly 72dpi; fractions survive any zoom or render width.
+- **An unknown signature id fails the whole request** rather than being dropped, which would leave
+  someone believing they had signed a page that is actually blank. A form where every field was
+  left empty is refused too, instead of creating a version that changes nothing.
 - **The scan dialog polls for a receipt.** The phone and the desktop share no connection, so the
   phone leaves a short-lived note in Redis and the desktop asks for it. Without that the QR code sat
   there after the phone had finished. A failed receipt write never fails the upload itself.

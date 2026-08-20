@@ -22,6 +22,12 @@
 # Generated at container start from the environment.
 /frontend/public/config.js
 
+# Reference material dropped in the repo root — other projects' archives carry
+# their own .env files and node_modules, and none of it belongs in this history.
+*.tar
+*.tar.gz
+*.zip
+
 # Editors / OS
 .DS_Store
 *.swp

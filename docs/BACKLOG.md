@@ -46,9 +46,12 @@ A dedicated section for acting on documents rather than just storing them.
 
 ## Shipped
 
-- **PDF signing** (2026-08-20) — `PdfSigner`, `PdfPageRenderer`, saved
-  signatures, placement UI. Still worth adding: multiple signatures per
-  document in one pass, initials/date stamps, and a signing audit trail.
+- **PDF signing** (2026-08-20) — rebuilt as a full-page editor after review,
+  following the LocalSign side project: tool palette, click-to-place fields
+  (text, date, checkbox, signature, initials), drag and resize, draw/type/reuse
+  signatures. `PdfFieldStamper`, `PdfPageRenderer`, `SignEditorView`.
+  Still worth taking from LocalSign: assigning fields to other people and
+  sending signing requests by email, plus the audit log it keeps.
 
 ---
 
