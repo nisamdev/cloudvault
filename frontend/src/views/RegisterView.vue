@@ -1,13 +1,16 @@
 <script setup>
 import { computed, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
 const fullName = ref("");
-const email = ref("");
+// An invitation is addressed to one mailbox and the API refuses any other, so
+// arriving from one prefills it rather than letting the wrong address be typed.
+const email = ref(typeof route.query.email === "string" ? route.query.email : "");
 const password = ref("");
 const passwordConfirmation = ref("");
 const acceptedTerms = ref(false);
@@ -64,8 +67,11 @@ async function handleSubmit() {
       // Pre-fills the family's timezone; the user can change it in Settings.
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    // A brand-new account has no family yet, so setup comes first.
-    router.push({ name: "family-setup" });
+    // Somebody who came from an invitation is about to join a family, so
+    // sending them to create one first is how they end up owning an empty one
+    // and being told they already belong somewhere.
+    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : null;
+    router.push(redirect || { name: "family-setup" });
   } catch (error) {
     formError.value = error.userMessage;
     fieldErrors.value = error.fieldErrors ?? {};

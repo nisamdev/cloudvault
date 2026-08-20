@@ -27,7 +27,11 @@ async function handleSubmit() {
   try {
     await auth.login(email.value, password.value, rememberMe.value);
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : null;
-    router.push(auth.needsFamilySetup ? { name: "family-setup" } : redirect || { name: "dashboard" });
+    // Where they were headed wins: an invitation link is itself the way out of
+    // having no family, so diverting to setup would defeat it.
+    if (redirect) return router.push(redirect);
+
+    router.push(auth.needsFamilySetup ? { name: "family-setup" } : { name: "dashboard" });
   } catch (error) {
     formError.value = error.userMessage;
     fieldErrors.value = error.fieldErrors ?? {};

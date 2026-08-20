@@ -91,7 +91,14 @@ module Api
           )
         end
 
-        if current_user.primary_membership.present?
+        existing = current_user.primary_membership
+
+        # Someone who registered to accept an invitation may have been walked
+        # through "create your family" on the way in and ended up owning an empty
+        # one. That is an artefact of the sign-up flow, not a family, so it makes
+        # way for the invitation. Anything with another member or a single file
+        # in it is real and blocks acceptance.
+        if existing.present? && !discardable_family?(existing)
           return render_error(
             message: "You already belong to a family.",
             code: "family_exists",
@@ -101,6 +108,8 @@ module Api
 
         member = nil
         ActiveRecord::Base.transaction do
+          discard_family(existing) if existing.present?
+
           member = invitation.family.family_members.create!(
             user: current_user,
             role: invitation.role,
@@ -129,6 +138,24 @@ module Api
       end
 
       private
+
+      # Empty means exactly that: they are the only member and nothing has ever
+      # been put in it.
+      def discardable_family?(membership)
+        family = membership.family
+
+        membership.owner? &&
+          family.family_members.count == 1 &&
+          !StoredFile.exists?(family_id: family.id) &&
+          !Folder.exists?(family_id: family.id)
+      end
+
+      def discard_family(membership)
+        family = membership.family
+
+        Label.where(family_id: family.id).delete_all
+        family.destroy!
+      end
 
       def set_family
         @family = Family.find(params[:family_id])

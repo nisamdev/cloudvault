@@ -114,9 +114,12 @@ function signIn() {
             Sign in to accept
           </button>
 
+          <!-- The invitation has to survive the detour through sign-up, or the
+               new account gets walked through "create a family" and arrives
+               back here already belonging to one. -->
           <RouterLink
             v-if="!auth.isAuthenticated"
-            :to="{ name: 'register' }"
+            :to="{ name: 'register', query: { redirect: route.fullPath, email: invitation.email } }"
             class="mt-3 block text-body-sm font-medium text-primary-600 hover:text-primary-700"
           >
             Don't have an account? Create one
