@@ -36,6 +36,12 @@ A dedicated section for acting on documents rather than just storing them.
 
 ## Shipped
 
+- **Inviting a family member from Settings** (2026-08-20) — there was no way to
+  do it outside the one-time setup flow, which itself said "do it from
+  Settings". The link is now returned once on creation and shown to copy, not
+  only emailed: this is a home server where SMTP may not exist. It is built from
+  the origin the browser used, so an invite opened on a phone works.
+
 - **EXIF stripped from public links** (2026-08-20) — a photo sent to someone
   outside the family no longer says where it was taken. JPEG and PNG are edited
   at the container level so nothing is recompressed; HEIC has no encoder in this

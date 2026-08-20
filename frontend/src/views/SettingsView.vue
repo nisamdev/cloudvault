@@ -176,6 +176,62 @@ async function revokeOthers() {
   }
 }
 
+const invite = ref({ email: "", role: "viewer" });
+const inviting = ref(false);
+const inviteError = ref("");
+// Shown once, after creating it: the token is not recoverable afterwards.
+const inviteLink = ref(null);
+const linkCopied = ref(false);
+
+async function sendInvite() {
+  inviteError.value = "";
+  inviting.value = true;
+
+  try {
+    const { data } = await api.post(`/families/${auth.family.id}/invitations`, {
+      email: invite.value.email.trim(),
+      role: invite.value.role,
+    });
+
+    invitations.value = [...invitations.value, data.invitation];
+    inviteLink.value = { email: data.invitation.email, url: data.invitation.accept_url };
+    invite.value = { email: "", role: "viewer" };
+    linkCopied.value = false;
+  } catch (e) {
+    inviteError.value = e.userMessage;
+  } finally {
+    inviting.value = false;
+  }
+}
+
+async function copyInviteLink() {
+  try {
+    await navigator.clipboard.writeText(inviteLink.value.url);
+    linkCopied.value = true;
+  } catch {
+    inviteError.value = "Couldn't copy automatically — select the link and copy it.";
+  }
+}
+
+async function revokeInvitation(invitation) {
+  const ok = await dialog.confirm({
+    title: "Cancel this invitation?",
+    message: `The link sent to ${invitation.email} stops working.`,
+    confirmLabel: "Cancel invitation",
+    danger: true,
+  });
+  if (!ok) return;
+
+  try {
+    await api.delete(`/families/${auth.family.id}/invitations/${invitation.id}`);
+    invitations.value = invitations.value.filter((i) => i.id !== invitation.id);
+    if (inviteLink.value?.email === invitation.email) inviteLink.value = null;
+    toast.show({ message: "Invitation cancelled", detail: invitation.email });
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
 async function changeRole(member, role) {
   try {
     const { data } = await api.patch(`/families/${auth.family.id}/members/${member.id}`, { role });
@@ -458,6 +514,81 @@ async function removeMember(member) {
             </li>
           </ul>
 
+          <div v-if="canManage" class="mt-8 border-t border-gray-200 pt-6">
+            <h3 class="text-body font-semibold text-gray-700">Invite someone</h3>
+            <p class="mt-1 text-body-sm text-gray-500">
+              They get a link that lets them create an account and join this family.
+            </p>
+
+            <p v-if="inviteError" role="alert" class="mt-3 rounded-base bg-error-50 px-3 py-2 text-body-sm text-error-600">
+              {{ inviteError }}
+            </p>
+
+            <form class="mt-4 flex flex-wrap items-end gap-3" novalidate @submit.prevent="sendInvite">
+              <div class="min-w-56 flex-1">
+                <label for="invite-email" class="mb-1 block text-body-sm font-medium text-gray-700">Email</label>
+                <input
+                  id="invite-email"
+                  v-model="invite.email"
+                  type="email"
+                  required
+                  placeholder="them@example.com"
+                  class="w-full rounded-base border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label for="invite-role" class="mb-1 block text-body-sm font-medium text-gray-700">Role</label>
+                <select
+                  id="invite-role"
+                  v-model="invite.role"
+                  class="rounded-base border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="admin">Admin — can invite and manage members</option>
+                  <option value="editor">Editor — can upload and edit</option>
+                  <option value="viewer">Viewer — can only look</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                :disabled="inviting || !invite.email.trim()"
+                class="rounded-base gradient-main px-5 py-2 text-body font-semibold text-white disabled:opacity-60"
+              >
+                {{ inviting ? "Inviting…" : "Send invite" }}
+              </button>
+            </form>
+
+            <!-- Shown once. The link is emailed too, but a home server may have
+                 no working SMTP, and a family is easier to reach on WhatsApp. -->
+            <div v-if="inviteLink" class="mt-4 rounded-base border border-primary-200 bg-primary-50 p-4">
+              <p class="text-body-sm font-medium text-primary-800">
+                Invitation for {{ inviteLink.email }}
+              </p>
+              <p class="mt-1 text-caption text-primary-700">
+                We emailed this link. You can also send it yourself — it is shown only now.
+              </p>
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <label for="invite-link" class="sr-only">Invitation link</label>
+                <input
+                  id="invite-link"
+                  :value="inviteLink.url"
+                  readonly
+                  class="min-w-56 flex-1 rounded-base border border-primary-200 bg-white px-3 py-2 font-mono text-caption text-gray-700"
+                  @focus="$event.target.select()"
+                />
+                <button
+                  type="button"
+                  class="shrink-0 rounded-base bg-primary-600 px-4 py-2 text-body-sm font-semibold text-white transition hover:bg-primary-700"
+                  @click="copyInviteLink"
+                >
+                  {{ linkCopied ? "Copied" : "Copy link" }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div v-if="invitations.length" class="mt-6">
             <h3 class="text-body font-semibold text-gray-700">Invited, not joined yet</h3>
             <ul class="mt-2 space-y-2">
@@ -466,8 +597,17 @@ async function removeMember(member) {
                 :key="invitation.id"
                 class="flex items-center justify-between gap-4 rounded-base border border-dashed border-gray-300 p-3"
               >
-                <span class="truncate text-body-sm text-gray-600">{{ invitation.email }}</span>
+                <span class="min-w-0 flex-1 truncate text-body-sm text-gray-600">{{ invitation.email }}</span>
                 <span class="shrink-0 text-caption capitalize text-gray-500">{{ invitation.role }}</span>
+                <button
+                  v-if="canManage"
+                  type="button"
+                  class="shrink-0 rounded-md p-2 text-error-500 transition hover:bg-error-50"
+                  :aria-label="`Cancel invitation for ${invitation.email}`"
+                  @click="revokeInvitation(invitation)"
+                >
+                  <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
               </li>
             </ul>
           </div>

@@ -92,15 +92,51 @@ RSpec.describe "Api::V1::Families" do
       expect(json["invitation"]["email"]).to eq("gran@smith.com")
     end
 
-    it "never returns the token or its digest in the response" do
+    # This is a vault someone runs at home, where SMTP may not be configured at
+    # all, so the inviter is given the link to pass on themselves. It is handed
+    # back exactly once, to the admin who just created it — the same bargain a
+    # share link makes.
+    it "returns the link once, to whoever created it" do
       post "/api/v1/families/#{family.id}/invitations",
            params: { email: "gran@smith.com" },
            headers: auth_headers_for(owner), as: :json
 
-      # The raw token exists only on the instance that created it (and so only
-      # in the email); the digest must never be exposed either.
-      expect(json["invitation"].keys).to contain_exactly("id", "email", "role", "expires_at")
-      expect(response.body).not_to include(FamilyInvitation.last.token_digest)
+      expect(json["invitation"]["accept_url"]).to include("/invitations/")
+      expect(FamilyInvitation.last.token_digest).to be_present
+    end
+
+    it "still stores only a digest, and never exposes it" do
+      post "/api/v1/families/#{family.id}/invitations",
+           params: { email: "gran@smith.com" },
+           headers: auth_headers_for(owner), as: :json
+
+      invitation = FamilyInvitation.last
+      token = json["invitation"]["accept_url"].split("/invitations/").last
+
+      expect(invitation.token_digest).to eq(FamilyInvitation.digest_for(token))
+      expect(invitation.attributes.values).not_to include(token)
+      expect(response.body).not_to include(invitation.token_digest)
+    end
+
+    it "does not hand the link to anyone who asks for it later" do
+      post "/api/v1/families/#{family.id}/invitations",
+           params: { email: "gran@smith.com" },
+           headers: auth_headers_for(owner), as: :json
+      token = json["invitation"]["accept_url"].split("/invitations/").last
+
+      get "/api/v1/families/#{family.id}", headers: auth_headers_for(owner)
+
+      expect(response.body).not_to include(token)
+    end
+
+    # A link to localhost is no use to somebody reading it on their phone.
+    it "builds the link for the origin the browser actually used" do
+      post "/api/v1/families/#{family.id}/invitations",
+           params: { email: "gran@smith.com" },
+           headers: auth_headers_for(owner).merge("Origin" => "https://vault.example.com"),
+           as: :json
+
+      expect(json["invitation"]["accept_url"]).to start_with("https://vault.example.com/invitations/")
     end
 
     it "refuses an editor — inviting is admin-only" do

@@ -33,9 +33,16 @@ module Api
           invited_by: current_user
         )
 
-        FamilyInvitationMailer.invite(invitation, invitation.raw_token).deliver_later
+        accept_url = "#{frontend_origin}/invitations/#{invitation.raw_token}"
+        FamilyInvitationMailer.invite(invitation, accept_url).deliver_later
 
-        render json: { invitation: serialize(invitation) }, status: :created
+        # The link is returned here as well as emailed. This is a vault someone
+        # runs at home, where SMTP may not be configured at all, and a family is
+        # easier to reach on WhatsApp anyway. Like a share link, the raw token
+        # exists only in this response — afterwards there is only a digest.
+        render json: {
+          invitation: serialize(invitation).merge(accept_url: accept_url)
+        }, status: :created
       end
 
       # GET /api/v1/invitations/:token
