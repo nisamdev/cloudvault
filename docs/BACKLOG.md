@@ -18,11 +18,6 @@ A dedicated section for acting on documents rather than just storing them.
 - Extract text (OCR) so scans become searchable — tesseract, and it would feed
   the existing full-text search
 
-### Sharing and privacy
-- **Strip EXIF from files served through public share links.** Photos carry GPS,
-  so a shared holiday photo currently leaks where it was taken. Family members
-  should keep the metadata; only the public path should be stripped.
-
 ### Bulk actions
 - Multi-select with shift-click ranges, then download as ZIP, label, move,
   share or trash in one action
@@ -40,6 +35,12 @@ A dedicated section for acting on documents rather than just storing them.
 ---
 
 ## Shipped
+
+- **EXIF stripped from public links** (2026-08-20) — a photo sent to someone
+  outside the family no longer says where it was taken. JPEG and PNG are edited
+  at the container level so nothing is recompressed; HEIC has no encoder in this
+  libvips build, so it is re-encoded to JPEG and both the filename and the share
+  page say so. Family downloads are untouched.
 
 - **Settings screen** (2026-08-20) — profile, password change, signed-in
   devices, family roles and a storage breakdown. Changing a password ends every

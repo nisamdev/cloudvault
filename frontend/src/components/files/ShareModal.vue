@@ -319,6 +319,14 @@ async function revoke(share) {
             </span>
             <span v-else>Create share link</span>
           </button>
+
+          <p v-if="props.file.file_type === 'image'" class="flex items-start gap-2 text-caption text-gray-500">
+            <i class="fas fa-location-crosshairs mt-0.5" aria-hidden="true"></i>
+            <span>
+              Location and camera details are stripped from photos downloaded
+              through a public link. Your copy and the family's keep them.
+            </span>
+          </p>
         </form>
 
         <!-- Existing links -->

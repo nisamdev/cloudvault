@@ -18,6 +18,8 @@ module Api
         blob = ActiveStorage::Blob.find_by(key: payload["key"])
         return head :not_found if blob.nil?
 
+        return send_stripped(blob, payload) if payload["strip"]
+
         if request.headers["Range"].present?
           send_blob_byte_range_data(blob, request.headers["Range"], disposition: disposition_for(blob, payload))
         else
@@ -50,6 +52,21 @@ module Api
           expires_now
           head :not_found
         end
+      end
+
+      # A copy with the location and camera details removed, for a link that has
+      # left the family. It has to be built before anything is sent — the size
+      # changes, so this cannot stream and cannot serve a range.
+      def send_stripped(blob, payload)
+        result = MetadataStripper.call(blob.download, content_type: blob.content_type)
+
+        response.headers["Cache-Control"] = "private, max-age=300"
+        send_data(
+          result.bytes,
+          type: result.content_type,
+          disposition: payload["disposition"].presence || "attachment",
+          filename: ActiveStorage::Filename.new(payload["filename"].presence || blob.filename.to_s).sanitized
+        )
       end
 
       # These bytes now come from our own origin, where the refresh-token cookie

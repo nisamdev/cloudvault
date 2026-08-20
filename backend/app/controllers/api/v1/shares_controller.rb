@@ -119,15 +119,7 @@ module Api
 
         @link.record_download!
 
-        render json: {
-          url: StorageUrl.for(
-            file.attachment,
-            expires_in: 5.minutes,
-            disposition: "attachment",
-            filename: file.name
-          ),
-          filename: file.name
-        }
+        render json: serve(file)
       end
 
       private
@@ -158,6 +150,39 @@ module Api
 
       # One message for every unusable state: an attacker probing tokens learns
       # nothing about whether a link ever existed.
+      # A public link has left the family, so a photo going down it is cleaned of
+      # where it was taken first. Family members still get the original, with the
+      # metadata the app shows them.
+      def serve(file)
+        blob = file.attachment.blob
+
+        unless MetadataStripper.strippable?(blob.content_type)
+          return {
+            url: StorageUrl.for(file.attachment, expires_in: 5.minutes,
+                                disposition: "attachment", filename: file.name),
+            filename: file.name
+          }
+        end
+
+        name = served_name(file, blob)
+
+        {
+          url: StorageUrl.stripped(blob, expires_in: 5.minutes,
+                                   disposition: "attachment", filename: name),
+          filename: name,
+          metadata_removed: true
+        }
+      end
+
+      # HEIC cannot be written back out here, so a cleaned copy is a JPEG and the
+      # name has to say so rather than lying about what was downloaded.
+      def served_name(file, blob)
+        extension = MetadataStripper.output_for(blob.content_type)[:extension]
+        return file.name if extension.nil?
+
+        "#{File.basename(file.name, '.*')}#{extension}"
+      end
+
       def render_unusable
         render_error(
           message: "This link is no longer available.",

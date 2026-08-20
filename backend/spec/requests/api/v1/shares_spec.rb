@@ -275,3 +275,83 @@ RSpec.describe "Api::V1 shared view" do
     end
   end
 end
+
+RSpec.describe "Api::V1 public share privacy" do
+  let(:owner) { create(:user) }
+  let(:family) { create(:family, owner: owner) }
+
+  # A photo carrying the coordinates of the house it was taken in.
+  def photo(content_type: "image/jpeg")
+    pixels = Vips::Image.black(64, 64).add(120).cast("uchar").bandjoin([ 120, 120 ])
+    payload = "Exif\0\0#{'51.5074N 0.1278W'.b}"
+    app1 = [ 0xFF, 0xE1 ].pack("C*") + [ payload.bytesize + 2 ].pack("n") + payload
+    bytes = pixels.write_to_buffer(".jpg")
+    with_gps = bytes.byteslice(0, 2) + app1 + bytes.byteslice(2..)
+
+    file = create(:stored_file, user: owner, family: family, visibility: "family",
+                                name: "Holiday.jpg", mime_type: content_type, file_type: "image")
+    file.attachment.attach(io: StringIO.new(with_gps), filename: "Holiday.jpg", content_type: content_type)
+    file
+  end
+
+  def download_through_link(file)
+    link = file.shared_links.create!(user: owner)
+    post "/api/v1/shares/#{link.raw_token}/download"
+    json
+  end
+
+  it "says the metadata was removed" do
+    body = download_through_link(photo)
+
+    expect(body["metadata_removed"]).to be true
+  end
+
+  it "serves a copy with the coordinates gone" do
+    body = download_through_link(photo)
+
+    get body["url"].sub(%r{\Ahttps?://[^/]+}, "")
+
+    expect(response).to have_http_status(:ok)
+    expect(response.body).not_to include("51.5074N 0.1278W")
+    expect(response.body).not_to include("Exif")
+  end
+
+  it "still sends a real picture, at full size" do
+    body = download_through_link(photo)
+
+    get body["url"].sub(%r{\Ahttps?://[^/]+}, "")
+    image = Vips::Image.new_from_buffer(response.body, "")
+
+    expect([ image.width, image.height ]).to eq([ 64, 64 ])
+  end
+
+  # The family is trusted with this: the app shows them the location itself.
+  it "leaves the original alone for someone signed in" do
+    file = photo
+
+    get "/api/v1/files/#{file.id}/download", headers: auth_headers_for(owner)
+
+    expect(file.attachment.download).to include("51.5074N 0.1278W")
+  end
+
+  it "does not touch a document" do
+    file = create(:stored_file, :with_attachment, user: owner, mime_type: "application/pdf", name: "Deed.pdf")
+    body = download_through_link(file)
+
+    expect(body["metadata_removed"]).to be_nil
+    expect(body["filename"]).to eq("Deed.pdf")
+  end
+
+  # The flag lives inside a signed token, so a recipient cannot ask for the
+  # original by editing the URL.
+  it "cannot be turned off by whoever holds the link" do
+    body = download_through_link(photo)
+    token = body["url"].split("/blobs/").last
+    payload = JwtService.decode_blob(token)
+
+    tampered = JWT.encode(payload.merge("strip" => false), "guessed-secret", "HS256")
+    get "/api/v1/blobs/#{tampered}"
+
+    expect(response).to have_http_status(:not_found)
+  end
+end

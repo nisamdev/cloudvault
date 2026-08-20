@@ -1,10 +1,12 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import api from "@/api/client";
 import { formatFileSize, fileIcon } from "@/utils/formatting";
 
 const route = useRoute();
+
+const HEIC_TYPES = ["image/heic", "image/heif", "image/avif"];
 
 const share = ref(null);
 const loading = ref(true);
@@ -25,6 +27,17 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+});
+
+// Photos going down a public link are cleaned of where they were taken, and a
+// HEIC has to be re-encoded to lose it — so the file that arrives is a JPEG.
+// Saying so beats a recipient wondering why the extension changed.
+const privacyNote = computed(() => {
+  if (share.value?.file?.file_type !== "image") return null;
+
+  return HEIC_TYPES.includes(share.value.file.mime_type)
+    ? "Location and camera details are removed from shared photos. This one downloads as a JPEG."
+    : "Location and camera details are removed from shared photos.";
 });
 
 async function download() {
@@ -111,6 +124,11 @@ async function download() {
               </span>
             </button>
           </form>
+
+          <p v-if="privacyNote" class="mt-4 flex items-start gap-2 text-left text-caption text-gray-500">
+            <i class="fas fa-location-crosshairs mt-0.5" aria-hidden="true"></i>
+            <span>{{ privacyNote }}</span>
+          </p>
         </template>
 
         <template v-else-if="unavailable">

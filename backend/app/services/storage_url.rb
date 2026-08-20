@@ -47,16 +47,32 @@ module StorageUrl
   end
 
   # A URL on our own origin that streams the bytes back (Api::V1::BlobsController).
-  def proxy_url(blob, expires_in:, disposition:, filename:)
+  def proxy_url(blob, expires_in:, disposition:, filename:, strip: false, content_type: nil)
     token = JwtService.encode_blob(
       key: blob.key,
       disposition: disposition,
       filename: filename,
-      content_type: blob.content_type,
+      content_type: content_type || blob.content_type,
+      strip: strip,
       expires_in: expires_in
     )
 
     "#{origin}/api/v1/blobs/#{token}"
+  end
+
+  # Bytes that do not exist in storage — a copy with its metadata removed — can
+  # only come from us, so this never presigns.
+  def stripped(blob, expires_in:, disposition:, filename:)
+    output = MetadataStripper.output_for(blob.content_type)
+
+    proxy_url(
+      blob,
+      expires_in: expires_in,
+      disposition: disposition,
+      filename: filename,
+      strip: true,
+      content_type: output[:content_type]
+    )
   end
 
   # Can the browser that is asking reach object storage directly?

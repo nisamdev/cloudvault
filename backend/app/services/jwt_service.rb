@@ -78,7 +78,7 @@ class JwtService
     # (see StorageUrl). It goes in a URL that <img>, <object> and plain
     # navigations can use, so it carries no session — the token is the whole
     # authorisation, which is why it names one blob and dies quickly.
-    def encode_blob(key:, disposition:, filename:, content_type: nil, expires_in: 15.minutes)
+    def encode_blob(key:, disposition:, filename:, content_type: nil, strip: false, expires_in: 15.minutes)
       now = Time.current
 
       JWT.encode(
@@ -87,6 +87,9 @@ class JwtService
           disposition: disposition,
           filename: filename,
           content_type: content_type,
+          # Whether to hand back a copy with its metadata removed. It is signed
+          # so a recipient cannot flip it off and get the original.
+          strip: strip,
           typ: "blob",
           iat: now.to_i,
           exp: (now + expires_in).to_i
