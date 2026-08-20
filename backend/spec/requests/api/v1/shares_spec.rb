@@ -176,3 +176,102 @@ RSpec.describe "Api::V1::Shares" do
     end
   end
 end
+
+RSpec.describe "Api::V1 shared view" do
+  let(:owner) { create(:user) }
+  let!(:family) { create(:family, owner: owner) }
+  let(:member) { create(:user).tap { |u| create(:family_member, family: family, user: u, role: "editor") } }
+  let(:stranger) { create(:user) }
+
+  describe "GET /api/v1/files?shared_with_me=true" do
+    it "lists family files somebody else uploaded" do
+      theirs = create(:stored_file, user: owner, family: family, visibility: "family", name: "Deed.pdf")
+
+      get "/api/v1/files", params: { shared_with_me: "true" }, headers: auth_headers_for(member)
+
+      expect(json["files"].map { |f| f["name"] }).to contain_exactly(theirs.name)
+    end
+
+    it "excludes my own files — they are not shared with me" do
+      create(:stored_file, user: member, family: family, visibility: "family", name: "Mine.pdf")
+      create(:stored_file, user: owner, family: family, visibility: "family", name: "Theirs.pdf")
+
+      get "/api/v1/files", params: { shared_with_me: "true" }, headers: auth_headers_for(member)
+
+      expect(json["files"].map { |f| f["name"] }).to contain_exactly("Theirs.pdf")
+    end
+
+    it "excludes private files" do
+      create(:stored_file, user: owner, visibility: "private", name: "Secret.pdf")
+
+      get "/api/v1/files", params: { shared_with_me: "true" }, headers: auth_headers_for(member)
+
+      expect(json["files"]).to be_empty
+    end
+
+    it "shows a non-member nothing" do
+      create(:stored_file, user: owner, family: family, visibility: "family")
+
+      get "/api/v1/files", params: { shared_with_me: "true" }, headers: auth_headers_for(stranger)
+
+      expect(json["files"]).to be_empty
+    end
+  end
+
+  describe "GET /api/v1/shares" do
+    let(:file) { create(:stored_file, :with_attachment, user: owner) }
+
+    it "lists every link I have out" do
+      file.shared_links.create!(user: owner)
+
+      get "/api/v1/shares", headers: auth_headers_for(owner)
+
+      expect(response).to have_http_status(:ok)
+      expect(json["shares"].size).to eq(1)
+      expect(json["shares"].first["file"]["name"]).to eq(file.name)
+      expect(json["shares"].first["status"]).to eq("active")
+    end
+
+    it "never includes the URL — it is only ever returned once, at creation" do
+      file.shared_links.create!(user: owner)
+
+      get "/api/v1/shares", headers: auth_headers_for(owner)
+
+      expect(json["shares"].first).not_to have_key("url")
+    end
+
+    it "leaves out revoked links" do
+      link = file.shared_links.create!(user: owner)
+      link.revoke!
+
+      get "/api/v1/shares", headers: auth_headers_for(owner)
+
+      expect(json["shares"]).to be_empty
+    end
+
+    it "leaves out links to a file that has been trashed" do
+      file.shared_links.create!(user: owner)
+      file.trash!
+
+      # The link is dead in practice; listing it as live would be a lie.
+      get "/api/v1/shares", headers: auth_headers_for(owner)
+
+      expect(json["shares"]).to be_empty
+    end
+
+    it "does not show me other people's links" do
+      theirs = create(:stored_file, :with_attachment, user: member, family: family, visibility: "family")
+      theirs.shared_links.create!(user: member)
+
+      get "/api/v1/shares", headers: auth_headers_for(owner)
+
+      expect(json["shares"]).to be_empty
+    end
+
+    it "requires a session" do
+      get "/api/v1/shares"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+  end
+end

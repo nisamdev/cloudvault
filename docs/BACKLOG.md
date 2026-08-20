@@ -33,7 +33,6 @@ A dedicated section for acting on documents rather than just storing them.
 - Zoom and pan in the preview
 
 ### Screens still stubbed
-- **Shared** — shared-with-me, plus managing every link in one place
 - **Settings** — profile, password change, active sessions, family members,
   storage breakdown
 
@@ -45,6 +44,12 @@ A dedicated section for acting on documents rather than just storing them.
 ---
 
 ## Shipped
+
+- **Shared screen** (2026-08-20) — two tabs, because "shared" means two
+  different things: what the family put here that I did not
+  (`GET /files?shared_with_me=true`), and every public link I have out
+  (`GET /shares`) with expiry, download count and revoke. Link URLs are not
+  shown — they are returned once, at creation, and only a digest is stored.
 
 - **PDF signing** (2026-08-20) — rebuilt as a full-page editor after review,
   following the LocalSign side project: tool palette, click-to-place fields

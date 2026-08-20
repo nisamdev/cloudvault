@@ -12,6 +12,31 @@ module Api
       before_action :set_file, only: %i[index create]
       before_action :set_link_by_token, only: %i[show download]
 
+      # GET /api/v1/shares — every link I have out, across all my files
+      def mine
+        links = SharedLink.active
+                          .where(user_id: current_user.id)
+                          .includes(:stored_file)
+                          .order(created_at: :desc)
+
+        # A link to a trashed file is dead weight; do not list it as live.
+        links = links.reject { |link| link.stored_file.nil? || link.stored_file.trashed? }
+
+        render json: {
+          shares: links.map do |link|
+            serialize(link).merge(
+              file: {
+                id: link.stored_file_id,
+                name: link.stored_file.name,
+                mime_type: link.stored_file.mime_type,
+                file_type: link.stored_file.file_type
+              },
+              status: link.usable? ? "active" : link.unusable_reason
+            )
+          end
+        }
+      end
+
       # GET /api/v1/files/:file_id/shares
       def index
         authorize_share! or return

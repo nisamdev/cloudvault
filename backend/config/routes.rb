@@ -71,6 +71,7 @@ Rails.application.routes.draw do
       get  "signatures/session/:token", to: "signatures#session_show", constraints: sig_token, format: false
       post "signatures/session/:token", to: "signatures#session_create", constraints: sig_token, format: false
 
+      get "shares", to: "shares#mine"
       resources :shares, only: %i[destroy]
 
       # Public share access — the token is the credential, so these are

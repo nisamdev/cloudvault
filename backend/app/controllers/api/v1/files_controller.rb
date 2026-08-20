@@ -16,6 +16,12 @@ module Api
         # search should do.
         scope = scope.where(folder_id: params[:folder_id].presence) if params.key?(:folder_id)
 
+        # Family-visible files somebody else put there. Mine are not "shared with
+        # me", so they are excluded.
+        if params[:shared_with_me] == "true"
+          scope = scope.where(visibility: "family").where.not(user_id: current_user.id)
+        end
+
         scope = scope.with_labels(params[:label_ids]) if params[:label_ids].present?
         scope = scope.search(params[:q]) if params[:q].present?
 
