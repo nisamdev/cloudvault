@@ -32,10 +32,6 @@ A dedicated section for acting on documents rather than just storing them.
 - Slideshow in the lightbox
 - Zoom and pan in the preview
 
-### Screens still stubbed
-- **Settings** — profile, password change, active sessions, family members,
-  storage breakdown
-
 ### Deployment
 - Railway config exists (`infra/railway/`) but has never been run
 - TLS for phone access: Tailscale, or Caddy with a local CA. Needed before
@@ -44,6 +40,12 @@ A dedicated section for acting on documents rather than just storing them.
 ---
 
 ## Shipped
+
+- **Settings screen** (2026-08-20) — profile, password change, signed-in
+  devices, family roles and a storage breakdown. Changing a password ends every
+  other session; each device can be signed out on its own, which is what a lost
+  phone needs. Ownership is deliberately not a role you can pick from the
+  dropdown. Last stubbed screen.
 
 - **Storage URLs that work off this machine** (2026-08-20) — presigned URLs were
   always signed for `S3_PUBLIC_ENDPOINT` (`localhost:9100`), which is the

@@ -6,6 +6,8 @@ class User < ApplicationRecord
   ROLES = %w[owner admin editor viewer].freeze
 
   has_many :refresh_tokens, dependent: :destroy
+  # Files stay with the family when a member leaves, so this is not dependent.
+  has_many :stored_files, dependent: nil, inverse_of: :user
   has_many :signatures, dependent: :destroy
   has_many :family_memberships, class_name: "FamilyMember", dependent: :destroy
   has_many :families, through: :family_memberships, source: :family

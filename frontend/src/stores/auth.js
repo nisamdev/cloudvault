@@ -78,6 +78,11 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  // Settings can change the profile without re-fetching the whole session.
+  function updateUser(patch) {
+    if (user.value) user.value = { ...user.value, ...patch };
+  }
+
   async function logout() {
     try {
       await api.post("/auth/logout");
@@ -102,6 +107,7 @@ export const useAuthStore = defineStore("auth", () => {
     login,
     register,
     restoreSession,
+    updateUser,
     logout,
     clearSession,
   };

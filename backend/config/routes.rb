@@ -17,6 +17,20 @@ Rails.application.routes.draw do
       # --- Families ----------------------------------------------------------
       resources :families, only: %i[create show update] do
         resources :invitations, only: %i[create destroy]
+        resources :members, only: %i[update destroy]
+      end
+
+      # --- This account ------------------------------------------------------
+      get   "account",          to: "account#show"
+      patch "account",          to: "account#update"
+      patch "account/password", to: "account#update_password"
+
+      # A refresh token is what keeps a device signed in, so the list of them is
+      # the list of sessions.
+      resources :sessions, only: %i[index destroy] do
+        collection do
+          delete "/", action: :destroy_all
+        end
       end
 
       # Invitation acceptance is addressed by token, not by id: the recipient
