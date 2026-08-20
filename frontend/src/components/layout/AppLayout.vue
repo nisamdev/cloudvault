@@ -23,6 +23,7 @@ const navItems = [
   { name: "recent", label: "Recent", icon: "fa-clock-rotate-left" },
   { name: "images", label: "Photos", icon: "fa-image" },
   { name: "shared", label: "Shared", icon: "fa-share-nodes" },
+  { name: "utilities", label: "Tools", icon: "fa-wand-magic-sparkles" },
   { name: "trash", label: "Trash", icon: "fa-trash" },
   { name: "settings", label: "Settings", icon: "fa-gear" },
 ];

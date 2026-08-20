@@ -83,6 +83,9 @@ Rails.application.routes.draw do
           get  :download
         end
       end
+      # Tools that act on documents rather than store them.
+      post "utilities/merge", to: "utilities#merge"
+
       resources :labels, only: %i[index create update destroy]
       resources :signatures, only: %i[index create update destroy]
 

@@ -8,15 +8,15 @@ Items move out of here as they ship.
 ## Requested, not started
 
 ### Utility area — document tools
-A dedicated section for acting on documents rather than just storing them.
+The Tools section exists. Remaining tools, in the order they are planned:
 
-- ~~**Sign a PDF**~~ — shipped. Signatures are drawn on a canvas and reused;
-  pages render server-side through libvips/poppler so the browser needs no PDF
-  library; the unsigned original is kept as a version.
-- Merge several PDFs into one, split a PDF, reorder or delete pages
-- Rotate pages, compress a PDF, convert images to PDF outside the scan flow
-- Extract text (OCR) so scans become searchable — tesseract, and it would feed
-  the existing full-text search
+- ~~**Sign a PDF**~~ — shipped.
+- ~~**Merge PDFs**~~ — shipped.
+- **Photos to PDF** — a set of photos into one document, outside the scan flow
+- **Rearrange pages** — reorder, rotate or remove pages inside a PDF
+- **Split a PDF** — pull a page range out as its own document
+- **OCR** — read the text inside a scan so the existing full-text search finds
+  it. Needs tesseract in the API image.
 
 ### Bulk actions
 - Multi-select with shift-click ranges, then download as ZIP, label, move,

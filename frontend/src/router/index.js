@@ -92,6 +92,12 @@ const routes = [
         meta: { title: "Shared" },
       },
       {
+        path: "utilities",
+        name: "utilities",
+        component: () => import("@/views/UtilitiesView.vue"),
+        meta: { title: "Tools" },
+      },
+      {
         path: "trash",
         name: "trash",
         component: () => import("@/views/TrashView.vue"),
