@@ -29,6 +29,20 @@ Between a grant and plain family membership, **the stronger wins** instead.
 Being handed a read-only link to a file you can already edit as a member of its
 family should not quietly demote you.
 
+## Families
+
+You can be in several, or in none. A family is created from Settings when you
+want one — nothing about signing up requires it, and an account with no family
+is a normal, complete account whose contents are private.
+
+`users.current_family_id` records only which one the app is showing, so uploads
+land somewhere predictable. It is a view preference, not a permission: deleting
+a family nulls it rather than being blocked by it.
+
+The owner cannot leave their own family, since that would leave it ownerless.
+Anyone else can, and the files they put there stay — those belong to the
+family, not to their membership.
+
 ## Roles
 
 Two different questions, kept apart on purpose. Mixing them is what makes an

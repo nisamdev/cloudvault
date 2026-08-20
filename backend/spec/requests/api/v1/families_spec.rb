@@ -16,15 +16,18 @@ RSpec.describe "Api::V1::Families" do
       expect(owner.reload.primary_membership.role).to eq("owner")
     end
 
-    it "refuses when the caller already belongs to a family" do
+    # This used to be refused. A family is a group you make when you want one,
+    # and people legitimately want more than one — "Family", "Parents' house",
+    # "Tax stuff with the accountant". See docs/ACL.md.
+    it "allows a second family" do
       create(:family, owner: owner)
 
       post "/api/v1/families",
            params: { family: { name: "Second Family" } },
            headers: auth_headers_for(owner), as: :json
 
-      expect(response).to have_http_status(:conflict)
-      expect(json["error"]["code"]).to eq("family_exists")
+      expect(response).to have_http_status(:created)
+      expect(owner.reload.families.count).to eq(2)
     end
 
     it "validates the name" do

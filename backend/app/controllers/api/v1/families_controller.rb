@@ -5,21 +5,70 @@ module Api
     class FamiliesController < BaseController
       before_action :set_family, only: %i[show update]
 
-      # POST /api/v1/families
-      def create
-        if current_user.primary_membership.present?
-          return render_error(
-            message: "You already belong to a family.",
-            code: "family_exists",
-            status: :conflict
-          )
-        end
+      # GET /api/v1/families — every family this account belongs to
+      def index
+        families = current_user.families.includes(:family_members).order(:created_at)
 
+        render json: {
+          families: families.map { |f| serialize_family(f, current_user) },
+          current_family_id: current_user.current_membership&.family_id
+        }
+      end
+
+      # POST /api/v1/families
+      #
+      # A family is something you create when you want one, and you can have
+      # more than one — "Family", "Parents' house", "Tax stuff". Nothing about
+      # an account requires any.
+      def create
         family = Family.new(family_params.merge(owner: current_user))
         family.family_storage_quota = ENV.fetch("FAMILY_STORAGE_QUOTA_BYTES", 2_147_483_648).to_i
         family.save!
 
+        # A newly created family is the one you meant to be working in.
+        current_user.update!(current_family_id: family.id)
+
         render json: { family: serialize_family(family, current_user) }, status: :created
+      end
+
+      # POST /api/v1/families/:id/select — which family the app is showing
+      def select
+        membership = current_user.family_memberships.find_by(family_id: params[:id])
+
+        unless membership
+          return render_error(message: "We couldn't find that family.",
+                              code: "not_found", status: :not_found)
+        end
+
+        current_user.update!(current_family_id: membership.family_id)
+        render json: { family: serialize_family(membership.family, current_user) }
+      end
+
+      # DELETE /api/v1/families/:id/leave
+      def leave
+        membership = current_user.family_memberships.find_by(family_id: params[:id])
+
+        unless membership
+          return render_error(message: "We couldn't find that family.",
+                              code: "not_found", status: :not_found)
+        end
+
+        # The owner cannot walk away and leave it ownerless; they delete it or
+        # hand it on, neither of which is a one-click action.
+        if membership.owner?
+          return render_error(
+            message: "You own this family, so you can't leave it.",
+            code: "owner_cannot_leave",
+            status: :unprocessable_content
+          )
+        end
+
+        # Their files stay where they are — they belong to the family — but the
+        # personal ones come with them.
+        membership.destroy!
+        current_user.update!(current_family_id: current_user.family_memberships.first&.family_id)
+
+        head :no_content
       end
 
       # GET /api/v1/families/:id

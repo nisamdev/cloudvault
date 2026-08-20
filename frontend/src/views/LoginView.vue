@@ -31,7 +31,7 @@ async function handleSubmit() {
     // having no family, so diverting to setup would defeat it.
     if (redirect) return router.push(redirect);
 
-    router.push(auth.needsFamilySetup ? { name: "family-setup" } : { name: "dashboard" });
+    router.push({ name: "dashboard" });
   } catch (error) {
     formError.value = error.userMessage;
     fieldErrors.value = error.fieldErrors ?? {};

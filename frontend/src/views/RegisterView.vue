@@ -67,11 +67,12 @@ async function handleSubmit() {
       // Pre-fills the family's timezone; the user can change it in Settings.
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    // Somebody who came from an invitation is about to join a family, so
-    // sending them to create one first is how they end up owning an empty one
-    // and being told they already belong somewhere.
+    // An account is useful on its own: everything in it is private until it is
+    // deliberately shared, and a family is something you create from Settings
+    // when you want one. Forcing it here is what left people owning an empty
+    // family and unable to accept the invitation that brought them.
     const redirect = typeof route.query.redirect === "string" ? route.query.redirect : null;
-    router.push(redirect || { name: "family-setup" });
+    router.push(redirect || { name: "dashboard" });
   } catch (error) {
     formError.value = error.userMessage;
     fieldErrors.value = error.fieldErrors ?? {};

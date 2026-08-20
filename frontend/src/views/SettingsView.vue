@@ -176,6 +176,61 @@ async function revokeOthers() {
   }
 }
 
+const creatingFamily = ref(false);
+const newFamilyName = ref("");
+const showCreateFamily = ref(false);
+
+async function createFamily() {
+  creatingFamily.value = true;
+  error.value = "";
+
+  try {
+    const { data } = await api.post("/families", { name: newFamilyName.value.trim() });
+    auth.families.push({ id: data.family.id, name: data.family.name, role: data.family.role });
+    auth.family = data.family;
+    newFamilyName.value = "";
+    showCreateFamily.value = false;
+    await load();
+    toast.show({ message: "Family created", detail: data.family.name });
+  } catch (e) {
+    error.value = e.userMessage;
+  } finally {
+    creatingFamily.value = false;
+  }
+}
+
+async function switchTo(id) {
+  if (id === auth.family?.id) return;
+
+  try {
+    await auth.switchFamily(id);
+    await load();
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
+async function leaveFamily(entry) {
+  const ok = await dialog.confirm({
+    title: `Leave ${entry.name}?`,
+    message: "You lose access to everything it shares.",
+    detail: "Files you uploaded into it stay there.",
+    confirmLabel: "Leave",
+    danger: true,
+  });
+  if (!ok) return;
+
+  try {
+    await api.delete(`/families/${entry.id}/leave`);
+    auth.families = auth.families.filter((f) => f.id !== entry.id);
+    auth.family = auth.families.length ? { ...auth.families[0] } : null;
+    await load();
+    toast.show({ message: "You left", detail: entry.name });
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
 const invite = ref({ email: "", role: "viewer" });
 const inviting = ref(false);
 const inviteError = ref("");
@@ -454,7 +509,100 @@ async function removeMember(member) {
         </div>
 
         <!-- Family -->
-        <div v-else-if="section === 'family'" class="rounded-lg border border-gray-200 bg-white p-6">
+        <div v-else-if="section === 'family'" class="space-y-6">
+          <!-- An account can belong to several: "Family", "Parents' house",
+               "Tax stuff with the accountant". Or to none, which is fine. -->
+          <div class="rounded-lg border border-gray-200 bg-white p-6">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 class="text-h3 font-semibold text-gray-800">Your families</h2>
+                <p class="mt-1 text-body-sm text-gray-500">
+                  A family is a group you share things with. You can be in as many as you like.
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 rounded-base border border-gray-300 px-3 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                @click="showCreateFamily = !showCreateFamily"
+              >
+                <i class="fas fa-plus mr-1" aria-hidden="true"></i>New family
+              </button>
+            </div>
+
+            <form
+              v-if="showCreateFamily"
+              class="mt-4 flex flex-wrap items-end gap-3"
+              novalidate
+              @submit.prevent="createFamily"
+            >
+              <div class="min-w-56 flex-1">
+                <label for="family-name" class="mb-1 block text-body-sm font-medium text-gray-700">Name</label>
+                <input
+                  id="family-name"
+                  v-model="newFamilyName"
+                  type="text"
+                  placeholder="The Smith Family"
+                  class="w-full rounded-base border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <button
+                type="submit"
+                :disabled="creatingFamily || !newFamilyName.trim()"
+                class="rounded-base gradient-main px-5 py-2 text-body font-semibold text-white disabled:opacity-60"
+              >
+                {{ creatingFamily ? "Creating…" : "Create" }}
+              </button>
+            </form>
+
+            <p v-if="!auth.families.length" class="mt-5 rounded-base bg-gray-50 px-4 py-6 text-center text-body text-gray-500">
+              You're not in a family yet. Everything here is private to you — make one when
+              you want to share.
+            </p>
+
+            <ul v-else class="mt-5 space-y-2">
+              <li
+                v-for="entry in auth.families"
+                :key="entry.id"
+                :class="[
+                  'flex flex-wrap items-center gap-4 rounded-base border p-4',
+                  entry.id === auth.family?.id ? 'border-primary-300 bg-primary-50' : 'border-gray-200',
+                ]"
+              >
+                <i class="fas fa-users text-xl text-gray-400" aria-hidden="true"></i>
+
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-body font-medium text-gray-800">
+                    {{ entry.name }}
+                    <span v-if="entry.id === auth.family?.id" class="ml-2 text-caption text-primary-700">
+                      Showing now
+                    </span>
+                  </p>
+                  <p class="text-caption capitalize text-gray-500">{{ entry.role }}</p>
+                </div>
+
+                <button
+                  v-if="entry.id !== auth.family?.id"
+                  type="button"
+                  class="shrink-0 rounded-base border border-gray-300 px-3 py-1.5 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                  @click="switchTo(entry.id)"
+                >
+                  Switch to
+                </button>
+
+                <button
+                  v-if="entry.role !== 'owner'"
+                  type="button"
+                  class="shrink-0 rounded-md p-2 text-error-500 transition hover:bg-error-50"
+                  :aria-label="`Leave ${entry.name}`"
+                  @click="leaveFamily(entry)"
+                >
+                  <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+        <div v-if="auth.family" class="rounded-lg border border-gray-200 bg-white p-6">
           <h2 class="text-h3 font-semibold text-gray-800">{{ auth.family?.name ?? "Family" }}</h2>
           <p class="mt-1 text-body-sm text-gray-500">
             <template v-if="canManage">Everyone who can reach what the family shares.</template>
@@ -611,6 +759,7 @@ async function removeMember(member) {
               </li>
             </ul>
           </div>
+        </div>
         </div>
 
         <!-- Storage -->

@@ -5,6 +5,8 @@ import api, { setAccessToken } from "@/api/client";
 export const useAuthStore = defineStore("auth", () => {
   const user = ref(null);
   const family = ref(null);
+  // An account may belong to several families, or to none.
+  const families = ref([]);
   // Distinguishes "not signed in" from "haven't checked yet" — the router needs
   // that difference to avoid bouncing a valid session to /login on first load.
   const sessionChecked = ref(false);
@@ -22,17 +24,30 @@ export const useAuthStore = defineStore("auth", () => {
   const canShare = computed(() => ["owner", "admin", "editor"].includes(role.value));
   const canManageFamily = computed(() => ["owner", "admin"].includes(role.value));
 
-  function applySession({ access_token: token, user: sessionUser, family: sessionFamily }) {
+  function applySession({
+    access_token: token,
+    user: sessionUser,
+    family: sessionFamily,
+    families: sessionFamilies,
+  }) {
     setAccessToken(token ?? null);
     user.value = sessionUser ?? null;
     family.value = sessionFamily ?? null;
+    families.value = sessionFamilies ?? [];
     sessionChecked.value = true;
+  }
+
+  async function switchFamily(id) {
+    const { data } = await api.post(`/families/${id}/select`);
+    family.value = { ...data.family };
+    return data.family;
   }
 
   function clearSession() {
     setAccessToken(null);
     user.value = null;
     family.value = null;
+    families.value = [];
     sessionChecked.value = true;
   }
 
@@ -96,6 +111,7 @@ export const useAuthStore = defineStore("auth", () => {
   return {
     user,
     family,
+    families,
     loading,
     sessionChecked,
     isAuthenticated,
@@ -107,6 +123,7 @@ export const useAuthStore = defineStore("auth", () => {
     login,
     register,
     restoreSession,
+    switchFamily,
     updateUser,
     logout,
     clearSession,

@@ -145,7 +145,12 @@ module Api
             role: membership.role,
             storage_quota: membership.family.family_storage_quota,
             storage_used: membership.family.family_storage_used
-          }
+          },
+          # All of them, so the app can offer a switcher. An account may belong
+          # to several families, or to none — neither is a broken state.
+          families: user.family_memberships.includes(:family).map do |m|
+            { id: m.family_id, name: m.family.name, role: m.role }
+          end
         }
       end
 

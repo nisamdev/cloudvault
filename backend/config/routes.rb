@@ -15,7 +15,11 @@ Rails.application.routes.draw do
       get  "auth/me",       to: "auth#me"
 
       # --- Families ----------------------------------------------------------
-      resources :families, only: %i[create show update] do
+      resources :families, only: %i[index create show update] do
+        member do
+          post :select
+          delete :leave
+        end
         resources :invitations, only: %i[create destroy]
         resources :members, only: %i[update destroy]
       end
