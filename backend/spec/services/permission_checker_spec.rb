@@ -214,14 +214,25 @@ RSpec.describe PermissionChecker, "with grants" do
     end
   end
 
-  # Being handed a read-only link to something you can already edit as a member
-  # of its family should not quietly demote you.
-  it "never takes away access someone already had" do
+  # Sharing with a family is itself a grant now, so a grant naming one person is
+  # the more specific statement of the two and decides it — which is what makes
+  # "the family can edit these, but Mum only reads this one" sayable at all.
+  it "lets a grant naming one person narrow what their family was given" do
     file = create(:stored_file, user: owner, family: family, visibility: "family")
     editor_member = create(:user).tap { |u| create(:family_member, family: family, user: u, role: "editor") }
     grant(file, to: editor_member, role: "viewer")
 
-    expect(described_class.can_edit?(editor_member, file)).to be true
+    expect(described_class.can_view?(editor_member, file)).to be true
+    expect(described_class.can_edit?(editor_member, file)).to be false
+  end
+
+  it "leaves the rest of the family where they were" do
+    file = create(:stored_file, user: owner, family: family, visibility: "family")
+    editor_member = create(:user).tap { |u| create(:family_member, family: family, user: u, role: "editor") }
+    other = create(:user).tap { |u| create(:family_member, family: family, user: u, role: "editor") }
+    grant(file, to: editor_member, role: "viewer")
+
+    expect(described_class.can_edit?(other, file)).to be true
   end
 
   it "does not promote a family viewer just because the file was shared with them" do

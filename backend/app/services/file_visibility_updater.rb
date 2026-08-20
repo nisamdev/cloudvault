@@ -2,9 +2,14 @@
 
 # Moves a file between "only me" and "shared with my family" after upload.
 #
-# This is not a plain attribute write. Visibility is tied to `family_id` (a
-# family-visible file must belong to a family) and to the family's storage
-# accounting, so both have to move with it — inside one transaction.
+# This is not a plain attribute write. Sharing with a family *is* an AccessGrant
+# naming that family — that grant is what PermissionChecker reads, and it is the
+# only thing that decides who can see the file. StoredFile keeps that grant in
+# step with the column, so this service only has to move the file and the
+# storage accounting.
+#
+# `family_id` and the family's storage accounting move with it too, all inside
+# one transaction.
 class FileVisibilityUpdater
   class Error < StandardError; end
   class Forbidden < Error; end

@@ -19,6 +19,14 @@ class StoredFile < ApplicationRecord
 
   has_many :file_versions, dependent: :destroy
   has_many :shared_links, dependent: :destroy
+  has_many :access_grants, as: :resource, dependent: :destroy
+
+  # Sharing with a family *is* a grant naming that family — that is what
+  # PermissionChecker reads. `visibility` is the label for the same fact, kept
+  # for listing and filtering, so the two are tied together here rather than in
+  # whichever service happened to do the writing. Nothing can set one without
+  # the other.
+  after_save :sync_family_grant, if: :saved_change_to_family_sharing?
   has_many :file_labels, dependent: :destroy
   has_many :labels, through: :file_labels
 
@@ -160,5 +168,27 @@ class StoredFile < ApplicationRecord
     return unless visibility == "family" && family_id.nil?
 
     errors.add(:visibility, "requires the file to belong to a family")
+  end
+
+  def saved_change_to_family_sharing?
+    saved_change_to_visibility? || saved_change_to_family_id?
+  end
+
+  def sync_family_grant
+    shared = visibility == "family" && family_id.present?
+
+    AccessGrant.where(resource: self, subject_type: "Family")
+               .where.not(subject_id: shared ? family_id : nil)
+               .destroy_all
+
+    return unless shared
+
+    grant = AccessGrant.find_or_initialize_by(resource: self, subject_type: "Family", subject_id: family_id)
+    # Editor, because that is what family visibility has always meant: members
+    # may change what is there. Each member is still capped by their own role in
+    # the family, which PermissionChecker applies.
+    grant.role = "editor"
+    grant.granted_by_id ||= user_id
+    grant.save!
   end
 end

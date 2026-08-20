@@ -9,13 +9,18 @@ sign-up, and everything in an account is private until it is deliberately
 shared. A user may belong to **several** families — "Family", "Parents' house",
 "Tax stuff with the accountant" — or to none.
 
-Access to a file comes from exactly three places, checked in this order:
+Access to a file comes from exactly two places:
 
 | Source | What it means |
 | --- | --- |
 | **Ownership** | The person who uploaded it. Can do anything to it, always. |
 | **A grant** | This file, or a folder above it, shared with them by name or with a family they belong to. |
-| **The file's family** | It lives in a family and they are a member, capped by their role there. |
+
+Sharing a file with your family **is** a grant naming that family. There is no
+separate visibility rule that permissions consult — one mechanism, so there is
+nothing for an ACL and a column to disagree about. `stored_files.visibility`
+survives as a label for listing and filtering, and `StoredFile` keeps it and the
+grant in step on every save, so neither can be set without the other.
 
 ## Resolving conflicts
 
@@ -25,9 +30,11 @@ folder above it. That is what makes "everything in this folder is read-only,
 except this one thing" expressible, and it is the rule people already know from
 Drive.
 
-Between a grant and plain family membership, **the stronger wins** instead.
-Being handed a read-only link to a file you can already edit as a member of its
-family should not quietly demote you.
+A grant to a family never gives a member more than their standing in that
+family allows: sharing a file into the family does not promote its viewers to
+editors. And because family sharing is itself a grant, a grant naming one
+person is the more specific of the two and decides it — which is what makes
+"the family can edit these, but Mum only reads this one" sayable at all.
 
 ## Families
 
