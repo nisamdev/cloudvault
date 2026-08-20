@@ -59,6 +59,17 @@ module CloudVault
     # connection on a large file.
     config.active_storage.service_urls_expire_in = 15.minutes
 
+    # Media the API streams itself (see Api::V1::BlobsController) is served from
+    # our own origin, so Active Storage's inline allowlist is now a security
+    # boundary: anything not on it downloads instead of rendering, which is what
+    # keeps an uploaded .html from running script next to the session cookie.
+    # Video and audio are safe to play inline and would otherwise be forced to
+    # download the moment the vault is reached over a tunnel.
+    config.active_storage.content_types_allowed_inline += %w[
+      video/mp4 video/webm video/ogg video/quicktime
+      audio/mpeg audio/mp4 audio/ogg audio/wav audio/webm audio/aac audio/flac
+    ]
+
     # Mail goes to Mailpit locally and a real SMTP provider in production; both
     # are configured entirely from the environment.
     config.action_mailer.delivery_method = :smtp

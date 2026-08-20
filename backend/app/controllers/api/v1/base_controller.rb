@@ -15,6 +15,11 @@ module Api
       rescue_from ActiveRecord::RecordInvalid, with: :handle_validation_error
       rescue_from ActionController::ParameterMissing, with: :handle_parameter_missing
 
+      # Storage URLs are built deep inside serializers that never see the
+      # request, but whether they can be reached depends on how this browser
+      # reached us. Stash it where StorageUrl can find it.
+      before_action { Current.request_origin = frontend_origin }
+
       private
 
       # Where the browser actually reached us — a cloudflared tunnel, a LAN IP,

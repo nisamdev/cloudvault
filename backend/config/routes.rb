@@ -71,6 +71,10 @@ Rails.application.routes.draw do
       get  "signatures/session/:token", to: "signatures#session_show", constraints: sig_token, format: false
       post "signatures/session/:token", to: "signatures#session_create", constraints: sig_token, format: false
 
+      # The token is a JWT, which contains dots — Rails would otherwise read the
+      # last segment as a format.
+      get "blobs/:token", to: "blobs#show", constraints: { token: %r{[^/]+} }, format: false
+
       get "shares", to: "shares#mine"
       resources :shares, only: %i[destroy]
 

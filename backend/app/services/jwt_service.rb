@@ -72,6 +72,42 @@ class JwtService
       raise InvalidToken, e.message
     end
 
+    # Credential for streaming one blob back through the API.
+    #
+    # Used when object storage is not reachable from wherever the browser is
+    # (see StorageUrl). It goes in a URL that <img>, <object> and plain
+    # navigations can use, so it carries no session — the token is the whole
+    # authorisation, which is why it names one blob and dies quickly.
+    def encode_blob(key:, disposition:, filename:, content_type: nil, expires_in: 15.minutes)
+      now = Time.current
+
+      JWT.encode(
+        {
+          key: key,
+          disposition: disposition,
+          filename: filename,
+          content_type: content_type,
+          typ: "blob",
+          iat: now.to_i,
+          exp: (now + expires_in).to_i
+        },
+        secret,
+        ALGORITHM
+      )
+    end
+
+    def decode_blob(token)
+      payload, = JWT.decode(token, secret, true, algorithm: ALGORITHM, verify_expiration: true)
+
+      raise InvalidToken, "unexpected token type" unless payload["typ"] == "blob"
+
+      payload
+    rescue JWT::ExpiredSignature
+      raise InvalidToken, "token expired"
+    rescue JWT::DecodeError => e
+      raise InvalidToken, e.message
+    end
+
     # Upload-only credential for the phone capture page. Carries where the
     # documents should land so the phone needs no further input.
     def encode_scan(user_id:, folder_id:, visibility:, expires_in:)

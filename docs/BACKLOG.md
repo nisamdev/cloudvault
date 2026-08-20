@@ -45,6 +45,14 @@ A dedicated section for acting on documents rather than just storing them.
 
 ## Shipped
 
+- **Storage URLs that work off this machine** (2026-08-20) — presigned URLs were
+  always signed for `S3_PUBLIC_ENDPOINT` (`localhost:9100`), which is the
+  visitor's own machine over a tunnel, so every download, preview and thumbnail
+  failed from outside. `StorageUrl` now decides per request: presign when
+  storage is genuinely reachable, otherwise stream through
+  `Api::V1::BlobsController`. Serving user bytes from our own origin means
+  uploads that could run script (html, svg) are forced to download.
+
 - **Shared screen** (2026-08-20) — two tabs, because "shared" means two
   different things: what the family put here that I did not
   (`GET /files?shared_with_me=true`), and every public link I have out
