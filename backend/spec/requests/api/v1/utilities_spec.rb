@@ -67,6 +67,27 @@ RSpec.describe "Api::V1::Utilities" do
       expect(json["file"]["name"]).to eq("Passport (merged).pdf")
     end
 
+    # "Passport (merged) (merged) (merged).pdf" says nothing the first one does
+    # not, and merging a merge is a normal thing to do.
+    it "does not stack the suffix when merging a merge" do
+      first = pdf(pages: 1, name: "Passport (merged).pdf")
+      second = pdf(pages: 1, name: "Licence.pdf")
+
+      merge([ first.id, second.id ])
+
+      expect(json["file"]["name"]).to eq("Passport (merged).pdf")
+    end
+
+    it "says where it put it" do
+      folder = create(:folder, user: user, name: "Passports")
+      first = pdf(pages: 1, name: "One.pdf")
+      second = pdf(pages: 1, name: "Two.pdf")
+
+      merge([ first.id, second.id ], folder_id: folder.id)
+
+      expect(json["file"]["folder"]).to include("id" => folder.id, "name" => "Passports")
+    end
+
     # A merge of family documents is a new document, and its author decides who
     # sees it.
     it "saves the result privately, whatever the sources were" do

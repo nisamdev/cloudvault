@@ -107,7 +107,12 @@ onMounted(async () => {
   await Promise.all([library.fetchFolders(), library.fetchLabels()]);
   await load();
 
-  // Arriving from "Show me" elsewhere in the app.
+  // Arriving from "Show me" elsewhere in the app. The folder comes with it:
+  // flashing a row is no use if the view is showing a different folder.
+  if (route.query.folder !== undefined) {
+    await openFolder(route.query.folder === "" ? null : Number(route.query.folder));
+  }
+
   const target = Number(route.query.show);
   if (target) flash(target);
 });

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import api from "@/api/client";
+import { useLibraryStore } from "@/stores/library";
 import { useToast } from "@/composables/useToast";
 import { formatFileSize, formatRelativeDate } from "@/utils/formatting";
 
@@ -9,6 +10,7 @@ const emit = defineEmits(["close"]);
 
 const router = useRouter();
 const toast = useToast();
+const library = useLibraryStore();
 
 const available = ref([]);
 const loading = ref(true);
@@ -19,6 +21,17 @@ const running = ref(false);
 // The order here is the order of the pages in the result, so it is the whole
 // point of the screen rather than a detail of it.
 const chosen = ref([]);
+
+// Where it lands, decided before running rather than discovered afterwards.
+const destination = ref("");
+// Kept on screen after the merge: closing the tool the moment it finished left
+// people holding a filename and no idea where it had gone.
+const result = ref(null);
+
+const destinationName = computed(() => {
+  if (!destination.value) return "Top level";
+  return library.folders.find((f) => String(f.id) === String(destination.value))?.name ?? "Top level";
+});
 
 const matches = computed(() => {
   const term = search.value.trim().toLowerCase();
@@ -33,10 +46,11 @@ const totalSize = computed(() => chosen.value.reduce((sum, f) => sum + (f.size ?
 
 onMounted(async () => {
   try {
-    const { data } = await api.get("/files", {
-      params: { file_type: "file", per_page: 200, sort: "newest" },
-    });
-    available.value = data.files.filter((f) => f.mime_type === "application/pdf");
+    const [files] = await Promise.all([
+      api.get("/files", { params: { file_type: "file", per_page: 200, sort: "newest" } }),
+      library.folders.length ? Promise.resolve() : library.fetchFolders(),
+    ]);
+    available.value = files.data.files.filter((f) => f.mime_type === "application/pdf");
   } catch (e) {
     error.value = e.userMessage;
   } finally {
@@ -67,21 +81,34 @@ async function run() {
   try {
     const { data } = await api.post("/utilities/merge", {
       file_ids: chosen.value.map((f) => f.id),
+      folder_id: destination.value || undefined,
     });
+
+    result.value = data.file;
+    chosen.value = [];
+
+    // The new file is a PDF, so it can be merged again straight away.
+    available.value = [data.file, ...available.value];
 
     toast.show({
-      message: "Merged",
+      message: `Saved to ${data.file.folder?.name ?? "Top level"}`,
       detail: `${data.file.name} · ${formatFileSize(data.file.size)}`,
-      action: { label: "Show me", handler: () => router.push({ name: "dashboard" }) },
+      actionLabel: "Show me",
+      action: openResult,
     });
-
-    chosen.value = [];
-    emit("close");
   } catch (e) {
     error.value = e.userMessage;
   } finally {
     running.value = false;
   }
+}
+
+// Lands on the file itself: the right folder, with the row flashed.
+function openResult() {
+  router.push({
+    name: "dashboard",
+    query: { show: result.value.id, folder: result.value.folder?.id ?? "" },
+  });
 }
 </script>
 
@@ -104,6 +131,36 @@ async function run() {
       <p v-if="error" role="alert" class="mt-4 rounded-base bg-error-50 px-4 py-3 text-body-sm text-error-600">
         {{ error }}
       </p>
+
+      <!-- Stays on screen. The toast is a nicety; this is the record of what
+           was made and where it went. -->
+      <div v-if="result" class="mt-4 rounded-base border border-success-500 bg-success-50 p-4">
+        <p class="text-body-sm font-semibold text-success-700">
+          <i class="fas fa-check mr-1" aria-hidden="true"></i>Merged
+        </p>
+        <p class="mt-1 text-body font-medium text-gray-800">{{ result.name }}</p>
+        <p class="mt-0.5 text-caption text-gray-600">
+          {{ formatFileSize(result.size) }} · saved in
+          <strong>{{ result.folder?.name ?? "Top level" }}</strong> · only you can see it
+        </p>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-base bg-success-700 px-4 py-2 text-body-sm font-semibold text-white transition hover:opacity-90"
+            @click="openResult"
+          >
+            Open it in My Files
+          </button>
+          <button
+            type="button"
+            class="rounded-base border border-gray-300 bg-white px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            @click="result = null"
+          >
+            Merge more
+          </button>
+        </div>
+      </div>
 
       <div class="mt-6 grid gap-6 lg:grid-cols-2">
         <!-- What is available -->
@@ -209,9 +266,24 @@ async function run() {
           </ol>
 
           <div v-if="chosen.length" class="mt-4">
+            <label for="merge-destination" class="mb-1 block text-body-sm font-medium text-gray-700">
+              Save it in
+            </label>
+            <select
+              id="merge-destination"
+              v-model="destination"
+              class="mb-3 w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">Top level</option>
+              <option v-for="folder in library.folders" :key="folder.id" :value="folder.id">
+                {{ folder.name }}
+              </option>
+            </select>
+
             <p class="mb-3 text-caption text-gray-500">
-              {{ chosen.length }} documents · {{ formatFileSize(totalSize) }}. The result is saved as
-              a new private file — the originals are untouched.
+              {{ chosen.length }} documents · {{ formatFileSize(totalSize) }} into
+              <strong>{{ destinationName }}</strong>, as a new private file. The originals are
+              untouched.
             </p>
 
             <button

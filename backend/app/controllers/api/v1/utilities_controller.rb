@@ -58,9 +58,11 @@ module Api
       end
 
       # Named after the first document, since that is the one the user picked
-      # first and usually the one they think of it as.
+      # first and usually the one they think of it as. Merging a merge does not
+      # stack the suffix — "Passport (merged) (merged) (merged).pdf" tells you
+      # nothing that "Passport (merged).pdf" does not.
       def output_name(files)
-        base = File.basename(files.first.name, ".*")
+        base = File.basename(files.first.name, ".*").sub(/\s*\(merged\)\z/, "")
         "#{base} (merged).pdf"
       end
 
