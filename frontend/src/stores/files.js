@@ -79,7 +79,12 @@ export const useFilesStore = defineStore("files", () => {
     await fetchFiles({ ...lastQuery, page: page.value + 1, append: true });
   }
 
-  async function upload(file, { visibility = "private", folderId = null } = {}) {
+  /**
+   * @param {File} file
+   * @param {{ visibility?: string, folderId?: string|number|null, onProgress?: (pct: number, event: ProgressEvent) => void, track?: boolean }} [options]
+   *   track — when false, skip the per-file progress row (batch UI owns progress).
+   */
+  async function upload(file, { visibility = "private", folderId = null, onProgress = null, track = true } = {}) {
     const tracker = {
       id: `${Date.now()}-${file.name}`,
       name: file.name,
@@ -88,23 +93,29 @@ export const useFilesStore = defineStore("files", () => {
       status: "uploading",
       error: "",
     };
-    uploads.value.push(tracker);
+    if (track) uploads.value.push(tracker);
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("visibility", visibility);
     if (folderId) formData.append("folder_id", folderId);
+    // Windows "Date modified" — what the OS shows in Properties. Browsers expose
+    // it as File.lastModified; WhatsApp photos often have no EXIF otherwise.
+    if (file.lastModified) formData.append("last_modified", String(file.lastModified));
 
     try {
       const { data } = await api.post("/files", formData, {
         onUploadProgress: (event) => {
           if (!event.total) return;
-          tracker.progress = Math.round((event.loaded * 100) / event.total);
+          const pct = Math.round((event.loaded * 100) / event.total);
+          tracker.progress = pct;
+          onProgress?.(pct, event);
         },
       });
 
       tracker.status = "done";
       tracker.progress = 100;
+      onProgress?.(100, { loaded: file.size, total: file.size });
 
       // A re-upload returns the same id with a new version; replace in place
       // rather than showing the file twice.
@@ -122,10 +133,15 @@ export const useFilesStore = defineStore("files", () => {
     } catch (e) {
       tracker.status = "failed";
       tracker.error = e.userMessage;
+      if (track) {
+        // Leave failures on screen so the user can read why.
+      } else {
+        // Batch UI surfaces failures; keep a dismissible row for detail.
+        uploads.value.push(tracker);
+      }
       throw e;
     } finally {
-      // Leave failures on screen so the user can read why.
-      if (tracker.status === "done") {
+      if (track && tracker.status === "done") {
         setTimeout(() => {
           uploads.value = uploads.value.filter((u) => u.id !== tracker.id);
         }, 2000);
@@ -171,6 +187,29 @@ export const useFilesStore = defineStore("files", () => {
     return data.file;
   }
 
+  /**
+   * Files a picture as a document, or a document back as a picture.
+   *
+   * Photos and My Files are the same list with a different filter on it, so
+   * changing which one a file belongs to takes it out of whichever is on
+   * screen — unless the screen is a search, which spans both.
+   */
+  async function setFileType(file, fileType) {
+    const { data } = await api.patch(`/files/${file.id}`, { file_type: fileType });
+
+    const index = items.value.findIndex((f) => f.id === file.id);
+    if (index < 0) return data.file;
+
+    if (lastQuery.fileType && lastQuery.fileType !== fileType) {
+      items.value.splice(index, 1);
+      totalCount.value = Math.max(totalCount.value - 1, 0);
+    } else {
+      items.value.splice(index, 1, data.file);
+    }
+
+    return data.file;
+  }
+
   /** Moves a file into a folder (null/"" = the root). */
   async function move(file, folderId) {
     const { data } = await api.patch(`/files/${file.id}`, { folder_id: folderId ?? "" });
@@ -182,8 +221,45 @@ export const useFilesStore = defineStore("files", () => {
     return data.file;
   }
 
+  /** Encrypts a file and moves it into the private section. */
+  async function moveToPrivate(file, folderId = undefined) {
+    const body = folderId != null ? { folder_id: folderId } : {};
+    const { data } = await api.post(`/files/${file.id}/lock`, body);
+
+    items.value = items.value.filter((f) => f.id !== file.id);
+    totalCount.value = Math.max(totalCount.value - 1, 0);
+
+    return data.file;
+  }
+
+  /** Decrypts a private file and returns it to My Files / Photos. */
+  async function removeFromPrivate(file) {
+    const { data } = await api.delete(`/files/${file.id}/lock`);
+
+    items.value = items.value.filter((f) => f.id !== file.id);
+    totalCount.value = Math.max(totalCount.value - 1, 0);
+
+    return data.file;
+  }
+
+  /** Downloads several files as one ZIP (browser navigation, like folder ZIP). */
+  async function downloadZip(fileIds) {
+    const { data } = await api.post("/files/zip_url", { file_ids: fileIds });
+    window.location.assign(data.url);
+    return data;
+  }
+
   function dismissUpload(id) {
     uploads.value = uploads.value.filter((u) => u.id !== id);
+  }
+
+  /** Merges one file into the current list without resetting pagination. */
+  function upsertFile(file) {
+    if (!file?.id) return;
+    const idx = items.value.findIndex((f) => String(f.id) === String(file.id));
+    if (idx >= 0) {
+      items.value[idx] = { ...items.value[idx], ...file };
+    }
   }
 
   return {
@@ -200,12 +276,17 @@ export const useFilesStore = defineStore("files", () => {
     isEmpty,
     fetchFiles,
     loadMore,
+    upsertFile,
     upload,
     trash,
     restore,
     download,
+    downloadZip,
     move,
+    moveToPrivate,
+    removeFromPrivate,
     rename,
+    setFileType,
     purge,
     dismissUpload,
   };

@@ -86,6 +86,12 @@ const routes = [
         meta: { title: "Photo Gallery" },
       },
       {
+        path: "private",
+        name: "private",
+        component: () => import("@/views/PrivateView.vue"),
+        meta: { title: "Private" },
+      },
+      {
         path: "shared",
         name: "shared",
         component: () => import("@/views/SharedView.vue"),

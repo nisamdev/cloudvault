@@ -54,16 +54,25 @@ describe("dateGroup", () => {
     expect(dateGroup(daysAgo(1))).toBe("Yesterday");
   });
 
-  it("groups the rest of the week together", () => {
-    expect(dateGroup(daysAgo(3))).toBe("Earlier this week");
+  // Day-level headings, like a phone's gallery: every other day this year gets
+  // its own weekday and date rather than being lumped into a week or a month.
+  it("names the day for anything else this year", () => {
+    const date = new Date();
+    date.setDate(date.getDate() - 3);
+    const expected = date.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+
+    expect(dateGroup(daysAgo(3))).toBe(expected);
   });
 
-  it("falls back to the month for older dates", () => {
+  it("spells out the year once the date is no longer in this one", () => {
     const older = new Date();
-    older.setDate(older.getDate() - 40);
-    const label = dateGroup(older.toISOString());
-    expect(label).not.toBe("Earlier this week");
-    expect(label.length).toBeGreaterThan(2);
+    older.setFullYear(older.getFullYear() - 2);
+
+    expect(dateGroup(older.toISOString())).toContain(String(older.getFullYear()));
   });
 
   it("handles a missing date", () => {

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import api from "@/api/client";
 import { useFilesStore } from "@/stores/files";
 import { useLibraryStore } from "@/stores/library";
 import { useDialog } from "@/composables/useDialog";
@@ -22,10 +23,16 @@ const reclaimable = computed(() => filesStore.items.reduce((sum, f) => sum + (f.
 
 onMounted(load);
 
-function load() {
+async function load() {
   error.value = "";
-  filesStore.fetchFiles({ trashed: true });
-  library.fetchTrashedFolders().catch((e) => (error.value = e.userMessage));
+  try {
+    await Promise.all([
+      filesStore.fetchFiles({ trashed: true }),
+      library.fetchTrashedFolders(),
+    ]);
+  } catch (e) {
+    error.value = e.userMessage;
+  }
 }
 
 /** Days until CloudVault removes it automatically. */
@@ -46,10 +53,12 @@ function countdownLabel(item) {
 async function restoreFile(file) {
   const ok = await dialog.confirm({
     title: `Restore "${file.name}"?`,
-    message: "It goes back to My Files.",
+    message: file.locked
+      ? "It goes back into your Private section."
+      : "It goes back to My Files.",
     // A file whose folder is gone reappears at the top level, so say so rather
     // than letting the user hunt for it.
-    detail: file.folder ? undefined : "It will appear at the top level.",
+    detail: file.folder || file.locked ? undefined : "It will appear at the top level.",
     confirmLabel: "Restore",
   });
   if (!ok) return;
@@ -98,12 +107,14 @@ async function purgeFile(file) {
 }
 
 async function emptyTrash() {
-  const count = filesStore.items.length;
-  if (!count) return;
+  const fileCount = filesStore.totalCount || filesStore.items.length;
+  const folderCount = library.trashedFolders.length;
+  const total = fileCount + folderCount;
+  if (!total) return;
 
   const ok = await dialog.confirm({
-    title: `Empty the trash?`,
-    message: `${count} ${count === 1 ? "item" : "items"} will be permanently deleted. This cannot be undone.`,
+    title: "Empty the trash?",
+    message: `${total} ${total === 1 ? "item" : "items"} will be permanently deleted. This cannot be undone.`,
     detail: reclaimable.value > 0 ? `${formatFileSize(reclaimable.value)} will be returned to your storage.` : undefined,
     confirmLabel: "Delete everything",
     danger: true,
@@ -113,19 +124,16 @@ async function emptyTrash() {
   busy.value = true;
   error.value = "";
 
-  // Sequential rather than parallel: each purge adjusts the same storage
-  // counters, and a burst of them would fight over the same rows.
-  for (const file of [...filesStore.items]) {
-    try {
-      await filesStore.purge(file);
-    } catch (e) {
-      error.value = e.userMessage;
-      break;
-    }
+  try {
+    // One API call — emptying page-by-page left the rest of the bin looking
+    // like it had come back after a reload.
+    await api.delete("/trash");
+    await load();
+  } catch (e) {
+    error.value = e.userMessage;
+  } finally {
+    busy.value = false;
   }
-
-  busy.value = false;
-  load();
 }
 </script>
 
@@ -143,7 +151,7 @@ async function emptyTrash() {
       </div>
 
       <button
-        v-if="filesStore.items.length"
+        v-if="filesStore.items.length || library.trashedFolders.length"
         type="button"
         :disabled="busy"
         class="rounded-base border border-error-500 px-4 py-2 text-body-sm font-semibold text-error-600 transition hover:bg-error-50 disabled:opacity-60"
@@ -206,7 +214,15 @@ async function emptyTrash() {
         <i :class="['fas', fileIcon(file).icon, fileIcon(file).className, 'text-xl']" aria-hidden="true"></i>
 
         <div class="min-w-0 flex-1">
-          <p class="truncate text-body font-medium text-gray-800">{{ file.name }}</p>
+          <p class="truncate text-body font-medium text-gray-800">
+            {{ file.name }}
+            <span
+              v-if="file.locked"
+              class="ml-2 inline-flex items-center gap-1 text-caption font-normal text-gray-500"
+            >
+              <i class="fas fa-lock text-[10px]" aria-hidden="true"></i>Private
+            </span>
+          </p>
           <p class="text-caption text-gray-500">
             {{ formatFileSize(file.size) }}
             <span v-if="countdownLabel(file)">

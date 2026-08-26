@@ -1,6 +1,10 @@
 <script setup>
 import { ref } from "vue";
 import MergePdfTool from "@/components/utilities/MergePdfTool.vue";
+import ScannerTool from "@/components/utilities/ScannerTool.vue";
+import PdfPagesTool from "@/components/utilities/PdfPagesTool.vue";
+import PdfSplitTool from "@/components/utilities/PdfSplitTool.vue";
+import PdfTextTool from "@/components/utilities/PdfTextTool.vue";
 
 /**
  * Tools that act on documents rather than store them.
@@ -9,6 +13,15 @@ import MergePdfTool from "@/components/utilities/MergePdfTool.vue";
  * decisions, and they need room to show what they are about to do.
  */
 const TOOLS = [
+  {
+    key: "scan",
+    name: "Scan & make a PDF",
+    summary: "Turn photos of a document into a scan, as a PDF or as images.",
+    detail: "Trim to the page, straighten it, and drop the shadows.",
+    icon: "fa-camera-retro",
+    tint: "bg-secondary-50 text-secondary-600",
+    ready: true,
+  },
   {
     key: "merge",
     name: "Merge PDFs",
@@ -19,20 +32,13 @@ const TOOLS = [
     ready: true,
   },
   {
-    key: "images-to-pdf",
-    name: "Photos to PDF",
-    summary: "Turn a set of photos into a single document.",
-    detail: "For pages you photographed instead of scanning.",
-    icon: "fa-file-image",
-    tint: "bg-secondary-50 text-secondary-600",
-  },
-  {
     key: "pages",
     name: "Rearrange pages",
     summary: "Reorder, rotate or remove pages inside a PDF.",
     detail: "Fix a scan that came out upside down or back to front.",
     icon: "fa-arrows-rotate",
     tint: "bg-warning-50 text-warning-600",
+    ready: true,
   },
   {
     key: "split",
@@ -41,14 +47,16 @@ const TOOLS = [
     detail: "One statement out of a year of them.",
     icon: "fa-scissors",
     tint: "bg-info-50 text-info-700",
+    ready: true,
   },
   {
-    key: "ocr",
-    name: "Make a scan searchable",
-    summary: "Read the text inside a scan so search can find it.",
-    detail: "Find a passport by its number, not just its filename.",
-    icon: "fa-magnifying-glass",
+    key: "text",
+    name: "Read a document",
+    summary: "Pull the details out of a PDF and copy them.",
+    detail: "Works on text PDFs and scans (OCR).",
+    icon: "fa-magnifying-glass-chart",
     tint: "bg-success-50 text-success-700",
+    ready: true,
   },
 ];
 
@@ -64,7 +72,11 @@ const open = ref(null);
       </p>
     </header>
 
-    <MergePdfTool v-if="open === 'merge'" @close="open = null" />
+    <ScannerTool v-if="open === 'scan'" @close="open = null" />
+    <MergePdfTool v-else-if="open === 'merge'" @close="open = null" />
+    <PdfPagesTool v-else-if="open === 'pages'" @close="open = null" />
+    <PdfSplitTool v-else-if="open === 'split'" @close="open = null" />
+    <PdfTextTool v-else-if="open === 'text'" @close="open = null" />
 
     <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <component

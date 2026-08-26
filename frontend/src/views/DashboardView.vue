@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useFilesStore } from "@/stores/files";
@@ -17,18 +17,37 @@ import { useDragAndDrop } from "@/composables/useDragAndDrop";
 import { useContextMenu } from "@/composables/useContextMenu";
 import { useDialog } from "@/composables/useDialog";
 import { useToast } from "@/composables/useToast";
+import { useVaultGate } from "@/composables/useVaultGate";
+import { usePrivateDestination } from "@/composables/usePrivateDestination";
+import { useSelection } from "@/composables/useSelection";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
+import BulkActionBar from "@/components/ui/BulkActionBar.vue";
+import InlineName from "@/components/ui/InlineName.vue";
 import { formatFileSize, formatRelativeDate, fileIcon } from "@/utils/formatting";
+import { useVaultStore } from "@/stores/vault";
+import api from "@/api/client";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const filesStore = useFilesStore();
 const library = useLibraryStore();
+const vault = useVaultStore();
+const vaultGate = useVaultGate();
+const privateDest = usePrivateDestination();
+const {
+  count: selectedCount,
+  hasSelection,
+  isSelected,
+  clear: clearSelection,
+  onSelect,
+  selectedOf,
+} = useSelection();
 const { dragging, dropTargetId, startDrag, endDrag, onDragOver, onDragLeave } = useDragAndDrop();
 const contextMenu = useContextMenu();
 const dialog = useDialog();
 const toast = useToast();
+const bulkBusy = ref(false);
 
 const search = ref("");
 const visibility = ref("private");
@@ -103,7 +122,12 @@ const heading = computed(() => {
   return library.currentFolder?.name ?? "My Files";
 });
 
+function onEscape(event) {
+  if (event.key === "Escape" && hasSelection.value) clearSelection();
+}
+
 onMounted(async () => {
+  window.addEventListener("keydown", onEscape);
   await Promise.all([library.fetchFolders(), library.fetchLabels()]);
   await load();
 
@@ -117,13 +141,42 @@ onMounted(async () => {
   if (target) flash(target);
 });
 
+onBeforeUnmount(() => window.removeEventListener("keydown", onEscape));
+
+/** Visible rows in order — folders first, then files — for shift-click ranges. */
+const selectableItems = computed(() => [
+  ...visibleFolders.value.map((folder) => ({ type: "folder", id: folder.id })),
+  ...filesStore.items.map((file) => ({ type: "file", id: file.id })),
+]);
+
+const bulkActions = computed(() => [
+  {
+    id: "download",
+    label: selectedCount.value > 1 ? "Download ZIP" : "Download",
+    icon: selectedCount.value > 1 ? "fa-file-zipper" : "fa-download",
+  },
+  vault.exists && { id: "private", label: "Move to Private", icon: "fa-lock" },
+  { id: "trash", label: "Move to trash", icon: "fa-trash", danger: true },
+].filter(Boolean));
+
+const bulkNoun = computed(() => {
+  const files = selectedOf("file").length;
+  const folders = selectedOf("folder").length;
+  if (files && folders) return "item";
+  if (folders) return "folder";
+  return "file";
+});
+
 function load() {
   const { label_ids: barLabels, ...rest } = filters.value;
 
+  // At the My Files root, documents only — photos live in the gallery.
+  // Inside a folder, show everything that folder actually holds; otherwise a
+  // folder full of photos looks empty while the sidebar still says "64".
+  const insideFolder = library.currentFolderId != null && !ignoreFolder.value;
+
   return filesStore.fetchFiles({
-    // Documents only — photos have their own gallery, as the docs specify
-    // ("Files Section" and "Images Section"). Searching still spans both.
-    fileType: searching.value ? null : "file",
+    fileType: searching.value || insideFolder ? null : "file",
     // undefined = every folder; "" = the root only.
     folderId: ignoreFolder.value ? undefined : (library.currentFolderId ?? ""),
     // Labels can come from the sidebar or the filter bar; either should work.
@@ -151,6 +204,7 @@ function onSearch() {
 
 async function openFolder(folderId) {
   search.value = "";
+  clearSelection();
   await library.openFolder(folderId);
   load();
 }
@@ -184,17 +238,43 @@ async function createFolder() {
   }
 }
 
-/* ------------------------------------------------------------------ menus */
+/* ---------------------------------------------------------------- naming */
 
-async function promptRenameFile(file) {
-  const name = await dialog.prompt({
-    title: "Rename file",
-    label: "File name",
-    value: file.name,
-    confirmLabel: "Rename",
-  });
-  if (!name || name === file.name) return;
+// The row being renamed, if any. One at a time: two open fields would leave the
+// user unsure which one Enter was about to commit.
+const renamingFileId = ref(null);
+const renamingFolderId = ref(null);
 
+function beginRenameFile(file) {
+  renamingFolderId.value = null;
+  renamingFileId.value = file.id;
+}
+
+function beginRenameFolder(folder) {
+  renamingFileId.value = null;
+  renamingFolderId.value = folder.id;
+}
+
+/** Sends a picture back to the gallery, undoing "this is a document". */
+async function fileAsPhoto(file) {
+  try {
+    await filesStore.setFileType(file, "image");
+
+    toast.show({
+      message: "Moved to Photos",
+      detail: file.name,
+      actionLabel: "Undo",
+      action: async () => {
+        await filesStore.setFileType(file, "file");
+        load();
+      },
+    });
+  } catch (e) {
+    filesStore.error = e.userMessage;
+  }
+}
+
+async function renameFile(file, name) {
   try {
     await filesStore.rename(file, name);
   } catch (e) {
@@ -202,17 +282,7 @@ async function promptRenameFile(file) {
   }
 }
 
-async function promptRenameFolder(folder) {
-  const name = await dialog.prompt({
-    title: "Rename folder",
-    label: "Folder name",
-    value: folder.name,
-    confirmLabel: "Rename",
-  });
-  if (!name || name === folder.name) return;
-
-  await renameFolder({ folder, name });
-}
+/* ------------------------------------------------------------------ menus */
 
 async function promptNewSubfolder(folder) {
   const name = await dialog.prompt({
@@ -235,7 +305,64 @@ async function moveToRoot(payload) {
   await handleDrop({ payload, targetFolderId: null });
 }
 
+async function moveFileToPrivate(file) {
+  if (!(await vaultGate.ensureUnlocked())) return;
+
+  const folderId = await privateDest.pick({ title: `Move "${file.name}" to Private` });
+  if (folderId === undefined) return;
+
+  try {
+    await filesStore.moveToPrivate(file, folderId);
+    toast.show({ message: "Moved to Private", detail: file.name });
+  } catch (e) {
+    filesStore.error = e.userMessage;
+  }
+}
+
+async function moveFolderToPrivate(folder) {
+  if (!(await vaultGate.ensureUnlocked())) return;
+
+  const folderId = await privateDest.pick({
+    title: `Move "${folder.name}" to Private`,
+    allowRoot: true,
+  });
+  if (folderId === undefined) return;
+
+  try {
+    const body = { folder_id: folderId ?? "" };
+    const { data } = await api.post(`/folders/${folder.id}/lock`, body);
+    toast.show({
+      message: `${folder.name} is private now`,
+      detail: `${data.files} file${data.files === 1 ? "" : "s"} encrypted`,
+    });
+    await Promise.all([library.fetchFolders(), load()]);
+  } catch (e) {
+    filesStore.error = e.userMessage;
+  }
+}
+
 function fileMenu(event, file) {
+  // Right-clicking inside a multi-selection acts on everything selected.
+  if (
+    selectedCount.value > 1 &&
+    isSelected("file", file.id)
+  ) {
+    contextMenu.open(event, {
+      title: `${selectedCount.value} selected`,
+      items: [
+        { label: "Download as ZIP", icon: "fa-file-zipper", action: () => runBulk("download") },
+        vault.exists && {
+          label: "Move to Private", icon: "fa-lock", action: () => runBulk("private"),
+        },
+        { divider: true },
+        {
+          label: "Move to trash", icon: "fa-trash", danger: true, action: () => runBulk("trash"),
+        },
+      ],
+    });
+    return;
+  }
+
   contextMenu.open(event, {
     title: file.name,
     items: [
@@ -255,11 +382,19 @@ function fileMenu(event, file) {
       },
       { divider: true },
       file.permissions.can_edit && {
-        label: "Rename…", icon: "fa-pen", action: () => promptRenameFile(file),
+        label: "Rename", icon: "fa-pen", action: () => beginRenameFile(file),
       },
       file.permissions.can_edit && file.folder && {
         label: "Move to top level", icon: "fa-arrow-turn-up",
         action: () => moveToRoot({ type: "file", id: file.id, name: file.name }),
+      },
+      // Only for a file that is a picture in the first place — the rest have
+      // nowhere to go.
+      file.permissions.can_edit && file.filed_as_document && {
+        label: "Move to Photos", icon: "fa-image", action: () => fileAsPhoto(file),
+      },
+      file.permissions.can_edit && vault.exists && {
+        label: "Move to Private", icon: "fa-lock", action: () => moveFileToPrivate(file),
       },
       file.permissions.can_delete && { divider: true },
       file.permissions.can_delete && {
@@ -278,6 +413,26 @@ async function downloadFolder(folder) {
 }
 
 function folderMenu(event, folder) {
+  if (
+    selectedCount.value > 1 &&
+    isSelected("folder", folder.id)
+  ) {
+    contextMenu.open(event, {
+      title: `${selectedCount.value} selected`,
+      items: [
+        { label: "Download as ZIP", icon: "fa-file-zipper", action: () => runBulk("download") },
+        vault.exists && {
+          label: "Move to Private", icon: "fa-lock", action: () => runBulk("private"),
+        },
+        { divider: true },
+        {
+          label: "Move to trash", icon: "fa-trash", danger: true, action: () => runBulk("trash"),
+        },
+      ],
+    });
+    return;
+  }
+
   contextMenu.open(event, {
     title: folder.name,
     items: [
@@ -290,10 +445,13 @@ function folderMenu(event, folder) {
       },
       { label: "New folder inside", icon: "fa-folder-plus", action: () => promptNewSubfolder(folder) },
       { divider: true },
-      { label: "Rename…", icon: "fa-pen", action: () => promptRenameFolder(folder) },
+      { label: "Rename", icon: "fa-pen", action: () => beginRenameFolder(folder) },
       folder.parent_id && {
         label: "Move to top level", icon: "fa-arrow-turn-up",
         action: () => moveToRoot({ type: "folder", id: folder.id, name: folder.name }),
+      },
+      vault.exists && {
+        label: "Move to Private", icon: "fa-lock", action: () => moveFolderToPrivate(folder),
       },
       { divider: true },
       {
@@ -441,22 +599,173 @@ async function onDownload(file) {
   }
 }
 
-// Offer sharing immediately after an upload — that is usually why the file was
-// uploaded in the first place.
 function onUploaded(file) {
   library.fetchFolders();
   flash(file.id);
+}
 
-  const where = file.folder?.name ?? "Top level";
+// One toast for the whole batch — uploading ten photos used to stack ten.
+function onUploadComplete({ uploaded, failed }) {
+  if (!uploaded.length) {
+    if (failed) toast.show({ message: "Upload failed", tone: "error" });
+    return;
+  }
+
+  if (uploaded.length === 1) {
+    const file = uploaded[0];
+    const where = file.folder?.name ?? "Top level";
+    toast.show({
+      message: `Uploaded to ${where}`,
+      detail: file.name,
+      actionLabel: "Show me",
+      action: () => {
+        openFolder(file.folder?.id ?? null).then(() => flash(file.id));
+      },
+    });
+    return;
+  }
+
   toast.show({
-    message: `Uploaded to ${where}`,
-    detail: file.name,
-    actionLabel: "Show me",
-    action: () => {
-      // Jump to wherever it actually landed, in case the view has moved on.
-      openFolder(file.folder?.id ?? null).then(() => flash(file.id));
-    },
+    message: `Uploaded ${uploaded.length} files`,
+    detail: failed ? `${failed} failed` : (uploaded[0].folder?.name ?? "Top level"),
   });
+}
+
+function selectFile(event, file) {
+  onSelect("file", file.id, event, selectableItems.value);
+}
+
+function selectFolder(event, folder) {
+  onSelect("folder", folder.id, event, selectableItems.value);
+}
+
+async function runBulk(actionId) {
+  if (bulkBusy.value) return;
+
+  const fileIds = selectedOf("file");
+  const folderIds = selectedOf("folder");
+  const files = fileIds
+    .map((id) => filesStore.items.find((f) => String(f.id) === String(id)))
+    .filter(Boolean);
+  const folders = folderIds
+    .map((id) => visibleFolders.value.find((f) => String(f.id) === String(id)))
+    .filter(Boolean);
+
+  if (!files.length && !folders.length) return;
+
+  bulkBusy.value = true;
+  try {
+    if (actionId === "download") await bulkDownload(files, folders);
+    else if (actionId === "private") await bulkMoveToPrivate(files, folders);
+    else if (actionId === "trash") await bulkTrash(files, folders);
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+async function bulkDownload(files, folders) {
+  // Several loose files → one ZIP. Folders already have their own ZIP endpoint.
+  if (files.length > 1 && folders.length === 0) {
+    try {
+      await filesStore.downloadZip(files.map((f) => f.id));
+      toast.show({ message: `Downloading ${files.length} files as ZIP` });
+    } catch (e) {
+      filesStore.error = e.userMessage;
+    }
+    return;
+  }
+
+  if (files.length === 1 && folders.length === 0) {
+    try {
+      await filesStore.download(files[0]);
+    } catch (e) {
+      filesStore.error = e.userMessage;
+    }
+    return;
+  }
+
+  for (const folder of folders) {
+    try {
+      await library.downloadFolder(folder);
+    } catch (e) {
+      filesStore.error = e.userMessage;
+    }
+  }
+  if (files.length === 1) {
+    try {
+      await filesStore.download(files[0]);
+    } catch (e) {
+      filesStore.error = e.userMessage;
+    }
+  } else if (files.length > 1) {
+    try {
+      await filesStore.downloadZip(files.map((f) => f.id));
+    } catch (e) {
+      filesStore.error = e.userMessage;
+    }
+  }
+}
+
+async function bulkMoveToPrivate(files, folders) {
+  if (!(await vaultGate.ensureUnlocked())) return;
+
+  const folderId = await privateDest.pick({
+    title: `Move ${files.length + folders.length} items to Private`,
+    allowRoot: folders.length > 0 && files.length === 0,
+  });
+  if (folderId === undefined) return;
+
+  // Files need a real folder; if only folders were selected, root (null) is fine.
+  if (files.length && folderId == null) {
+    filesStore.error = "Pick a private folder for the files.";
+    return;
+  }
+
+  let moved = 0;
+  try {
+    for (const folder of folders) {
+      await api.post(`/folders/${folder.id}/lock`, { folder_id: folderId ?? "" });
+      moved += 1;
+    }
+    for (const file of files) {
+      await filesStore.moveToPrivate(file, folderId);
+      moved += 1;
+    }
+    toast.show({
+      message: `Moved ${moved} ${moved === 1 ? "item" : "items"} to Private`,
+    });
+    clearSelection();
+    await Promise.all([library.fetchFolders(), load()]);
+  } catch (e) {
+    filesStore.error = e.userMessage;
+  }
+}
+
+async function bulkTrash(files, folders) {
+  const n = files.length + folders.length;
+  const ok = await dialog.confirm({
+    title: `Move ${n} ${n === 1 ? "item" : "items"} to trash?`,
+    message: "You can restore them from Trash for 30 days.",
+    confirmLabel: "Move to trash",
+    danger: true,
+  });
+  if (!ok) return;
+
+  try {
+    for (const folder of folders) {
+      await library.deleteFolder(folder);
+    }
+    for (const file of files) {
+      await filesStore.trash(file);
+    }
+    toast.show({
+      message: `Moved ${n} ${n === 1 ? "item" : "items"} to trash`,
+    });
+    clearSelection();
+    await Promise.all([library.fetchFolders(), load()]);
+  } catch (e) {
+    filesStore.error = e.userMessage;
+  }
 }
 </script>
 
@@ -661,6 +970,7 @@ function onUploaded(file) {
         :folder-id="library.currentFolderId"
         class="mb-6"
         @uploaded="onUploaded"
+        @complete="onUploadComplete"
       />
 
       <p
@@ -704,30 +1014,56 @@ function onUploaded(file) {
           v-for="folder in visibleFolders"
           :key="`folder-${folder.id}`"
           :folder="folder"
+          :editing="renamingFolderId === folder.id"
+          :selected="isSelected('folder', folder.id)"
+          :selecting="hasSelection"
           @contextmenu="folderMenu($event, folder)"
+          @update:editing="renamingFolderId = $event ? folder.id : null"
           @open="openFolder"
           @drop="handleDrop"
           @rename="renameFolder"
           @delete="deleteFolder"
           @download="downloadFolder"
+          @select="selectFolder($event, folder)"
         />
 
         <li
           v-for="file in filesStore.items"
           :key="file.id"
           :data-file-id="file.id"
-          draggable="true"
+          :draggable="renamingFileId !== file.id"
           :class="[
-            'flex items-center gap-4 rounded-lg border bg-white p-4 transition',
-            highlighted.has(file.id)
-              ? 'border-primary-500 ring-2 ring-primary-200'
-              : 'border-gray-200',
+            'group flex items-center gap-3 rounded-lg border bg-white p-4 transition',
+            isSelected('file', file.id)
+              ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200'
+              : highlighted.has(file.id)
+                ? 'border-primary-500 ring-2 ring-primary-200'
+                : 'border-gray-200',
             dragging?.type === 'file' && dragging.id === file.id ? 'opacity-40' : 'hover:shadow-md',
           ]"
           @dragstart="startDrag($event, 'file', file)"
           @dragend="endDrag"
           @contextmenu="fileMenu($event, file)"
         >
+          <button
+            type="button"
+            data-select-toggle
+            :class="[
+              'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
+              isSelected('file', file.id)
+                ? 'border-primary-600 bg-primary-600 text-white'
+                : 'border-gray-300 text-transparent hover:border-primary-400',
+              hasSelection || isSelected('file', file.id)
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            ]"
+            :aria-label="isSelected('file', file.id) ? `Deselect ${file.name}` : `Select ${file.name}`"
+            :aria-pressed="isSelected('file', file.id)"
+            @click="selectFile($event, file)"
+          >
+            <i class="fas fa-check text-[10px]" aria-hidden="true"></i>
+          </button>
+
           <!-- Presigned thumbnail URLs expire; if one has, fall back to the
                icon rather than leaving a broken image in the row. -->
           <img
@@ -745,13 +1081,16 @@ function onUploaded(file) {
           ></i>
 
           <div class="min-w-0 flex-1">
-            <button
-              type="button"
-              class="block w-full truncate text-left text-body font-medium text-gray-800 hover:text-primary-600"
-              @click="previewFile = file"
-            >
-              {{ file.name }}
-            </button>
+            <InlineName
+              :name="file.name"
+              :editing="renamingFileId === file.id"
+              :input-id="`rename-file-${file.id}`"
+              label="File name"
+              keep-extension
+              @update:editing="renamingFileId = $event ? file.id : null"
+              @rename="renameFile(file, $event)"
+              @open="previewFile = file"
+            />
             <p class="text-caption text-gray-500">
               {{ formatFileSize(file.size) }} · {{ formatRelativeDate(file.created_at) }}
               <span v-if="file.version_number > 1"> · v{{ file.version_number }}</span>
@@ -792,6 +1131,15 @@ function onUploaded(file) {
               v-if="file.permissions.can_edit"
               type="button"
               class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
+              :aria-label="`Rename ${file.name}`"
+              @click="beginRenameFile(file)"
+            >
+              <i class="fas fa-pen" aria-hidden="true"></i>
+            </button>
+            <button
+              v-if="file.permissions.can_edit"
+              type="button"
+              class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
               :aria-label="`Edit labels for ${file.name}`"
               @click="labellingFile = file"
             >
@@ -827,6 +1175,16 @@ function onUploaded(file) {
         </li>
       </ul>
       </div>
+
+      <BulkActionBar
+        v-if="hasSelection"
+        :count="selectedCount"
+        :noun="bulkNoun"
+        :actions="bulkActions"
+        :busy="bulkBusy"
+        @action="runBulk"
+        @clear="clearSelection"
+      />
 
       <ContextMenu />
 

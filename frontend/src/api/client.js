@@ -50,9 +50,30 @@ export function setAuthFailureHandler(handler) {
   onAuthFailure = handler;
 }
 
+/*
+ * The private section's unlock token.
+ *
+ * In memory only, and deliberately not a cookie: the browser must not send it
+ * on its own. "Unlocked" should mean this tab, now — not this machine, since
+ * Tuesday. A reload locks the section again, which is the intended behaviour
+ * and not an oversight.
+ */
+let vaultToken = null;
+
+export function setVaultToken(token) {
+  vaultToken = token;
+}
+
+export function getVaultToken() {
+  return vaultToken;
+}
+
 api.interceptors.request.use((config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
+  }
+  if (vaultToken) {
+    config.headers["X-Vault-Key"] = vaultToken;
   }
   return config;
 });

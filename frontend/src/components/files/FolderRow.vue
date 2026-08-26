@@ -1,26 +1,23 @@
 <script setup>
-import { computed, nextTick, ref } from "vue";
+import { computed } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { useDragAndDrop } from "@/composables/useDragAndDrop";
+import InlineName from "@/components/ui/InlineName.vue";
 
 const props = defineProps({
   folder: { type: Object, required: true },
+  // Owned by the view, so only one name anywhere on the screen is being typed.
+  editing: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false },
+  // Once anything is selected, checkboxes stay visible on every row.
+  selecting: { type: Boolean, default: false },
 });
-const emit = defineEmits(["open", "drop", "rename", "delete", "download"]);
+const emit = defineEmits([
+  "open", "drop", "rename", "delete", "download", "update:editing", "select",
+]);
 
 const library = useLibraryStore();
 const { dragging, dropTargetId, startDrag, endDrag, onDragOver, onDragLeave } = useDragAndDrop();
-
-const renaming = ref(false);
-const draftName = ref(props.folder.name);
-const nameInput = ref(null);
-
-async function beginRename() {
-  renaming.value = true;
-  await nextTick();
-  nameInput.value?.focus();
-  nameInput.value?.select();
-}
 
 // A folder cannot be dropped into itself or into its own subtree.
 const descendantIds = computed(() => library.descendantIds(props.folder.id));
@@ -36,20 +33,20 @@ function handleDrop(event) {
   if (payload) emit("drop", { payload, targetFolderId: props.folder.id });
 }
 
-function submitRename() {
-  const name = draftName.value.trim();
-  renaming.value = false;
-  if (name && name !== props.folder.name) emit("rename", { folder: props.folder, name });
-  else draftName.value = props.folder.name;
+function onSelectClick(event) {
+  event.stopPropagation();
+  emit("select", event);
 }
 </script>
 
 <template>
   <li
-    draggable="true"
+    :draggable="!editing"
     :class="[
-      'flex items-center gap-4 rounded-lg border bg-white p-4 transition',
-      isDropTarget ? 'border-primary-600 bg-primary-50 ring-2 ring-primary-200' : 'border-gray-200',
+      'group flex items-center gap-3 rounded-lg border bg-white p-4 transition',
+      selected ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200' : '',
+      isDropTarget ? 'border-primary-600 bg-primary-50 ring-2 ring-primary-200' : '',
+      !selected && !isDropTarget ? 'border-gray-200' : '',
       isBeingDragged ? 'opacity-40' : 'hover:shadow-md',
     ]"
     @dragstart="startDrag($event, 'folder', folder)"
@@ -58,6 +55,23 @@ function submitRename() {
     @dragleave="onDragLeave(folder.id)"
     @drop="handleDrop"
   >
+    <button
+      type="button"
+      data-select-toggle
+      :class="[
+        'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
+        selected
+          ? 'border-primary-600 bg-primary-600 text-white'
+          : 'border-gray-300 text-transparent hover:border-primary-400',
+        selecting || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+      ]"
+      :aria-label="selected ? `Deselect ${folder.name}` : `Select ${folder.name}`"
+      :aria-pressed="selected"
+      @click="onSelectClick"
+    >
+      <i class="fas fa-check text-[10px]" aria-hidden="true"></i>
+    </button>
+
     <i
       class="fas fa-folder text-xl"
       :style="{ color: folder.shared ? 'var(--color-primary-500)' : 'var(--color-warning-500)' }"
@@ -65,27 +79,15 @@ function submitRename() {
     ></i>
 
     <div class="min-w-0 flex-1">
-      <form v-if="renaming" @submit.prevent="submitRename">
-        <label :for="`rename-${folder.id}`" class="sr-only">Folder name</label>
-        <input
-          :id="`rename-${folder.id}`"
-          ref="nameInput"
-          v-model="draftName"
-          type="text"
-          class="w-full rounded-base border border-gray-300 px-2 py-1 text-body outline-none focus:ring-2 focus:ring-primary-500"
-          @blur="submitRename"
-          @keydown.esc="renaming = false; draftName = folder.name"
-        />
-      </form>
-
-      <button
-        v-else
-        type="button"
-        class="block w-full truncate text-left text-body font-medium text-gray-800 hover:text-primary-600"
-        @click="emit('open', folder.id)"
-      >
-        {{ folder.name }}
-      </button>
+      <InlineName
+        :name="folder.name"
+        :editing="editing"
+        :input-id="`rename-folder-${folder.id}`"
+        label="Folder name"
+        @update:editing="emit('update:editing', $event)"
+        @rename="emit('rename', { folder, name: $event })"
+        @open="emit('open', folder.id)"
+      />
 
       <p class="text-caption text-gray-500">
         {{ folder.file_count }} {{ folder.file_count === 1 ? "file" : "files" }}
@@ -113,7 +115,7 @@ function submitRename() {
         type="button"
         class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
         :aria-label="`Rename ${folder.name}`"
-        @click="beginRename"
+        @click="emit('update:editing', true)"
       >
         <i class="fas fa-pen" aria-hidden="true"></i>
       </button>

@@ -7,16 +7,22 @@ Items move out of here as they ship.
 
 ## Requested, not started
 
+### A private section, locked with a password
+Asked for 2026-08-26: a place for both files and photos that needs a password,
+and folders that can be locked. Design not settled — see the note at the bottom
+of this file.
+
 ### Utility area — document tools
 The Tools section exists. Remaining tools, in the order they are planned:
 
 - ~~**Sign a PDF**~~ — shipped.
 - ~~**Merge PDFs**~~ — shipped.
-- **Photos to PDF** — a set of photos into one document, outside the scan flow
-- **Rearrange pages** — reorder, rotate or remove pages inside a PDF
-- **Split a PDF** — pull a page range out as its own document
-- **OCR** — read the text inside a scan so the existing full-text search finds
-  it. Needs tesseract in the API image.
+- ~~**Photos to PDF**~~ — shipped, as part of the scanner.
+- ~~**Rearrange pages**~~ — shipped.
+- ~~**Split a PDF**~~ — shipped.
+- ~~**Read a document**~~ — shipped.
+- ~~**OCR**~~ — shipped: Read a document falls back to tesseract when a PDF has
+  no text layer (scans). Needs `tesseract-ocr` in the API image.
 
 ### Bulk actions
 - Multi-select with shift-click ranges, then download as ZIP, label, move,
@@ -35,6 +41,47 @@ The Tools section exists. Remaining tools, in the order they are planned:
 ---
 
 ## Shipped
+
+- **Read a document** (2026-08-26) — the text inside a PDF, and the handful of
+  things in it worth reading: labelled fields, dates, amounts, references,
+  emails and phone numbers, each copyable on its own. Running headers, page
+  numbers and boilerplate paragraphs are dropped, which is the difference
+  between this and a page of extracted text. `PdfTextExtractor` (pdf-reader),
+  `KeyDetails`, `GET /files/:id/text`, `PdfTextTool`. The PDF preview grew a
+  "Copy the text" button off the same endpoint.
+  It only reads text that is *in* the file; a scan has none, and says so.
+
+- **Split a PDF** (2026-08-26) — a run of pages out as a document of its own,
+  chosen by clicking the pages. Writes a new file and leaves the original
+  alone, which is the opposite of what rearranging does and deliberately so.
+
+- **Rearrange pages** (2026-08-26) — reorder, turn and drop pages inside a PDF.
+  The API takes the finished layout rather than a list of moves, so the two
+  sides cannot drift apart, and the result lands as a new *version* of the same
+  file — the note at the bottom of this file, applied. `PdfPageArranger`,
+  `PATCH /files/:id/pages`, `PdfPagesTool`.
+
+- **A photographed document is a document** (2026-08-26) — `file_type` followed
+  the mime type, so a scanned certificate lived in the photo gallery for ever.
+  Right-click → "This is a document" moves it to My Files (and back), keeping
+  its thumbnail, and `file_type_pinned` stops a later re-upload undoing the
+  choice.
+
+- **Scanner** (2026-08-26) — photographs of a document into a scan: a crop with
+  draggable corners that straightens perspective, an auto-guess at where the
+  page is, four looks (including shadow removal, which is what makes a photo
+  read as a scan), page reordering, and a save as one PDF or as PNGs. The
+  imaging runs in the browser so the preview and the saved file come out of the
+  same code; the API only assembles the document (`ImagePdfBuilder`,
+  `utilities#images_to_pdf`). Photos already in the vault can be pulled into it,
+  which needed `files#preview?via=proxy` — a canvas cannot read back pixels it
+  drew from another origin.
+  Not done: the phone capture page (`/scan/:token`) still uploads originals for
+  the server to process, rather than using this editor.
+
+- **Inline renaming** (2026-08-26) — files rename in the row, as folders
+  already did, with the extension left out of the selection. `InlineName` is
+  now shared by both.
 
 - **Inviting a family member from Settings** (2026-08-20) — there was no way to
   do it outside the one-time setup flow, which itself said "do it from
@@ -84,3 +131,10 @@ The Tools section exists. Remaining tools, in the order they are planned:
 Anything touching PDFs should reuse the version history that already exists —
 signing, merging and page edits are all destructive operations where keeping the
 original matters more than saving space.
+
+A locked section has to decide what "locked" means before any of it is built:
+hidden and refused by the API unless the session has been unlocked, or actually
+encrypted with a key derived from the passphrase. The first survives a forgotten
+password and keeps thumbnails, previews and search working; the second also
+survives somebody getting the disk, and loses the files for good if the
+passphrase is forgotten. That trade is the owner's to make, not ours.

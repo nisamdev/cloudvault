@@ -1,13 +1,17 @@
 <script setup>
-import { ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useVaultStore } from "@/stores/vault";
 import { formatFileSize } from "@/utils/formatting";
 import AppDialog from "@/components/ui/AppDialog.vue";
 import ToastStack from "@/components/ui/ToastStack.vue";
+import VaultGate from "@/components/vault/VaultGate.vue";
+import PrivateDestinationPicker from "@/components/vault/PrivateDestinationPicker.vue";
 
 const router = useRouter();
 const auth = useAuthStore();
+const vault = useVaultStore();
 
 // Mobile: the sidebar is an overlay. Tablet and up it is a static column
 // (PATTERNS.md §Responsive).
@@ -18,11 +22,18 @@ watch(() => router.currentRoute.value.fullPath, () => {
   sidebarOpen.value = false;
 });
 
+// So context menus know whether "Move to private" is available without visiting
+// the Private screen first.
+onMounted(() => {
+  vault.refresh();
+});
+
 const navItems = [
   { name: "dashboard", label: "My Files", icon: "fa-folder" },
   { name: "recent", label: "Recent", icon: "fa-clock-rotate-left" },
   { name: "images", label: "Photos", icon: "fa-image" },
   { name: "shared", label: "Shared", icon: "fa-share-nodes" },
+  { name: "private", label: "Private", icon: "fa-lock" },
   { name: "utilities", label: "Tools", icon: "fa-wand-magic-sparkles" },
   { name: "trash", label: "Trash", icon: "fa-trash" },
   { name: "settings", label: "Settings", icon: "fa-gear" },
@@ -147,6 +158,8 @@ async function handleLogout() {
       <!-- Mounted once for every screen inside the app shell. -->
       <AppDialog />
       <ToastStack />
+      <VaultGate />
+      <PrivateDestinationPicker />
     </div>
   </div>
 </template>

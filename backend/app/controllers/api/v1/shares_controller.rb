@@ -49,6 +49,16 @@ module Api
       def create
         authorize_share! or return
 
+        # A public link to an encrypted file would have to hand out the key with
+        # it, which is the opposite of what putting it in the private section
+        # was for.
+        if @file.locked?
+          return render_error(
+            message: "#{@file.name} is in your private section. Take it out before sharing a link to it.",
+            code: "file_locked", status: :unprocessable_content
+          )
+        end
+
         link = @file.shared_links.new(
           user: current_user,
           expires_at: parse_expiry,

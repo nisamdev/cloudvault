@@ -28,12 +28,14 @@ class FileUploader
   end
 
   # @param upload [ActionDispatch::Http::UploadedFile]
+  # @param last_modified [Integer, String, nil] browser File.lastModified (ms)
   # @return [StoredFile]
-  def call(upload, folder: nil, visibility: "private", replaces: nil)
+  def call(upload, folder: nil, visibility: "private", replaces: nil, last_modified: nil)
     # A re-upload inherits the existing file's visibility.
     effective_visibility = replaces ? replaces.visibility : visibility
     validate!(upload, family_visible: effective_visibility == "family")
 
+    @last_modified = last_modified
     stored_file = replaces ? add_version(upload, replaces) : create_file(upload, folder, visibility)
 
     # Quota accounting must not drift if a later step raises, so it happens in
@@ -69,8 +71,9 @@ class FileUploader
 
   def create_file(upload, folder, visibility)
     content_type = resolve_content_type(upload)
+    file_type = StoredFile.file_type_for(content_type)
 
-    StoredFile.transaction do
+    stored_file = StoredFile.transaction do
       stored_file = StoredFile.create!(
         user: user,
         family: visibility == "family" ? family : nil,
@@ -78,8 +81,12 @@ class FileUploader
         name: sanitized_name(upload.original_filename),
         mime_type: content_type,
         size: upload.size.to_i,
-        file_type: StoredFile.file_type_for(content_type),
-        visibility: visibility
+        file_type: file_type,
+        visibility: visibility,
+        # Seed the timeline date before the EXIF job runs. Messaging apps often
+        # strip EXIF; the OS "Modified" time (File.lastModified) and WhatsApp-
+        # style filenames are the next-best signal.
+        taken_at: file_type == "image" ? provisional_taken_at(upload.original_filename) : nil
       )
 
       stored_file.attachment.attach(
@@ -89,10 +96,14 @@ class FileUploader
       )
 
       charge_storage(upload.size.to_i, family_id: stored_file.family_id)
-      enqueue_processing(stored_file)
-
       stored_file
     end
+
+    # After the transaction commits. Enqueueing inside it races Sidekiq: the
+    # worker often loads the row before the attach is visible and quietly exits
+    # with no thumbnail — which is why bulk WhatsApp uploads left blank tiles.
+    enqueue_processing(stored_file)
+    stored_file
   end
 
   # Re-uploading over a file keeps the previous bytes as a version and prunes
@@ -125,7 +136,9 @@ class FileUploader
       stored_file.update!(
         size: upload.size.to_i,
         mime_type: content_type,
-        file_type: StoredFile.file_type_for(content_type),
+        # Left alone once its owner has filed it themselves: re-uploading a
+        # scanned certificate should not send it back to the photo gallery.
+        file_type: stored_file.file_type_pinned ? stored_file.file_type : StoredFile.file_type_for(content_type),
         version_number: stored_file.version_number + 1
       )
 
@@ -134,10 +147,11 @@ class FileUploader
       # an old version releases its bytes below.)
       charge_storage(upload.size.to_i, family_id: stored_file.family_id)
       prune_versions(stored_file)
-      enqueue_processing(stored_file)
-
       stored_file
     end
+
+    enqueue_processing(stored_file)
+    stored_file
   end
 
   def prune_versions(stored_file)
@@ -164,7 +178,27 @@ class FileUploader
   end
 
   def enqueue_processing(stored_file)
-    ProcessImageJob.perform_later(stored_file.id) if stored_file.image?
+    ProcessImageJob.perform_later(stored_file.id) if stored_file.picture?
+  end
+
+  # Filename first (WhatsApp embeds the real day), then the browser's
+  # lastModified — which on Windows is the Properties "Modified" stamp.
+  def provisional_taken_at(filename)
+    FilenameDateParser.call(filename) || parse_last_modified(@last_modified)
+  end
+
+  def parse_last_modified(value)
+    return nil if value.blank?
+
+    ms = value.to_i
+    return nil if ms <= 0
+
+    time = Time.zone.at(ms / 1000.0)
+    return nil if time.year < 1990 || time > 1.day.from_now
+
+    time
+  rescue ArgumentError, TypeError
+    nil
   end
 
   # The browser's Content-Type is unreliable: Chrome sends an empty string or

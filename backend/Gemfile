@@ -31,6 +31,9 @@ gem "rqrcode", "~> 3.0"
 # Overlays a signature onto an existing PDF page without rewriting the file.
 # MIT-licensed, unlike the usual alternative (HexaPDF is AGPL or commercial).
 gem "combine_pdf", "~> 1.0"
+# Reads the text layer out of a PDF. Pure Ruby, so no poppler-utils in the image
+# and nothing new to install on a workstation.
+gem "pdf-reader", "~> 2.12"
 
 # --- Background jobs --------------------------------------------------------
 gem "sidekiq", "~> 8.0"

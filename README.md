@@ -33,7 +33,7 @@ local stacks. All of them are configurable in `.env`.
 | Service | URL | Purpose |
 |---|---|---|
 | Web (Vue) | <http://localhost:5273> | The app |
-| API (Rails) | <http://localhost:3100> | JSON API |
+| API (Rails) | <http://localhost:3101> | JSON API |
 | MinIO console | <http://localhost:9101> | Browse uploaded objects |
 | Mailpit | <http://localhost:8125> | Catches every outbound email |
 | Postgres | `localhost:5532` | |

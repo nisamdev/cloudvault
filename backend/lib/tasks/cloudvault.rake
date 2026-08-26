@@ -83,6 +83,23 @@ namespace :cloudvault do
     puts "[cloudvault] EXIF found for #{found} image(s)"
   end
 
+  desc "Enqueue ProcessImageJob for pictures that still have no gallery thumbnail"
+  task backfill_thumbnails: :environment do
+    queued = 0
+
+    StoredFile.active.find_each do |file|
+      next unless file.picture?
+      next if file.encrypted?
+      next unless file.attachment.attached?
+      next if file.thumbnail.attached?
+
+      ProcessImageJob.perform_later(file.id)
+      queued += 1
+    end
+
+    puts "[cloudvault] queued #{queued} thumbnail job(s)"
+  end
+
   desc "Re-detect file types for uploads misfiled because the browser sent a vague Content-Type"
   task reclassify_files: :environment do
     require "marcel"

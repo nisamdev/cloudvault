@@ -42,15 +42,45 @@ Rails.application.routes.draw do
       get  "invitations/:token",        to: "invitations#show",   as: :invitation
       post "invitations/:token/accept", to: "invitations#accept", as: :accept_invitation
 
+      # --- The private section -----------------------------------------------
+      # A passphrase-locked place for files and photos. Unlocking hands back a
+      # token that has to be sent with every request that touches it.
+      get    "vault",              to: "vaults#show"
+      post   "vault",              to: "vaults#create"
+      post   "vault/unlock",       to: "vaults#unlock"
+      delete "vault/unlock",       to: "vaults#lock"
+      patch  "vault/passphrase",   to: "vaults#change_passphrase"
+      post   "vault/recover",      to: "vaults#recover"
+      post   "vault/recovery_key_seen", to: "vaults#recovery_key_seen"
+
+      # Empty the whole bin in one request (files + folders).
+      delete "trash", to: "trash#destroy"
+
       # --- Files and images --------------------------------------------------
       resources :files, only: %i[index show create update destroy] do
+        collection do
+          # Multi-select download: ask for a URL, then navigate to stream the ZIP.
+          post :zip_url
+          get  :zip
+        end
         member do
           get    :download
+          get    :content
           get    :preview
           get    :pages
+          # Same noun, so the same path: GET renders the pages, PATCH rewrites
+          # them.
+          patch  :pages, action: :rearrange
+          get    :text
+          post   :split
           post   :sign
           post   :restore
           delete :purge
+          # Moving a single file into the private section (and back out).
+          post   :lock
+          delete :lock, action: :unlock
+          # Rebuild a missing gallery thumbnail.
+          post   :reprocess
         end
         # Managing links for a file (owner side).
         resources :shares, only: %i[index create]
@@ -77,6 +107,9 @@ Rails.application.routes.draw do
         end
         member do
           post :restore
+          # Moving a folder into the private section and back out again.
+          post   :lock
+          delete :lock, action: :unlock
           # Two steps: the SPA asks for a signed URL, the browser then navigates
           # to it so the ZIP downloads like any other file.
           post :download_url
@@ -85,6 +118,7 @@ Rails.application.routes.draw do
       end
       # Tools that act on documents rather than store them.
       post "utilities/merge", to: "utilities#merge"
+      post "utilities/images_to_pdf", to: "utilities#images_to_pdf"
 
       resources :labels, only: %i[index create update destroy]
       resources :signatures, only: %i[index create update destroy]
