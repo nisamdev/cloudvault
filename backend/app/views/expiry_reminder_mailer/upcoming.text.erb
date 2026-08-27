@@ -1,0 +1,12 @@
+<%= @user.full_name.presence || "Hello" %>,
+
+<%= @dues.size == 1 ? "One thing in your register is running out." : "#{@dues.size} things in your register are running out." %>
+
+<% @dues.each do |due| -%>
+<%= due.record.title %>
+  <%= due.field.label %>: <%= due.date.strftime("%-d %B %Y") %> — <%= due.days.zero? ? "today" : "#{due.days} days left" %>
+<% end -%>
+
+See them all: <%= @register_url %>
+
+You can turn these off in Settings → Reminders.

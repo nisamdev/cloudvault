@@ -268,6 +268,23 @@ in the same box as the first is not a second factor.
 
 ## XII. Expiry reminders
 
+**Settings.** One switch — write to me or don't — and one choice: everything I
+can see, or only my own records. The settings screen also lists what is running
+out and says how many of them would be written about, because a preference about
+email is abstract until you can see the email it would send. That list is
+therefore derived from the longest reminder schedule rather than a round number,
+or it would promise a letter about something it had never shown you.
+
+**One letter a day at most**, gathering everything of one person's. Five messages
+about five dates is how a useful reminder becomes a filter rule. The subject line
+carries the most urgent item — "The blue Golf — MOT due in 6 days, and 1 other" —
+so it can be read without opening anything.
+
+Nothing is sent twice: what has been written about is noted against the record,
+the field, the date it held and which step of the schedule it was. Move the date
+and the whole schedule starts again, which is exactly what renewing something
+should do.
+
 The feature that turns a filing cabinet into something useful. Mark a date field
 as an expiry; a nightly job emails whoever should care.
 
@@ -450,7 +467,7 @@ phone.
 | 3 | `vault:backup` + `vault:restore` — the cheap half, both directions ✅ | half a day | **Done** (2026-08-26) |
 | 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | **Done** (2026-08-27) |
 | 5 | The generator ✅ — in every secret field, and standalone in Tools | half a day | **Done** (2026-08-27) |
-| 6 | Expiry reminders | 1–2 days | **Parked** — schema + per-field schedules in, nothing sends yet |
+| 6 | Expiry reminders ✅ — nightly digest, per-person settings | 1–2 days | **Done** (2026-08-27) |
 | 7 | Who can use the vault — the per-person switch | half a day | |
 | 8 | Short-term sharing — expiring grants, burn-after-reading links | 2 days | |
 | 9 | TOTP on login | 1 day | |

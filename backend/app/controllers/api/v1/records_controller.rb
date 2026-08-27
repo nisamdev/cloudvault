@@ -93,6 +93,25 @@ module Api
         head :no_content
       end
 
+      # GET /api/v1/records/upcoming
+      #
+      # What is running out, for the register and for the settings screen —
+      # where it doubles as a preview of exactly what would be posted.
+      def upcoming
+        dues = UpcomingExpiries.for_user(current_user)
+
+        render json: {
+          upcoming: dues.map(&:to_h),
+          reminders: {
+            enabled: current_user.reminders_enabled,
+            scope: current_user.reminder_scope,
+            email: current_user.email,
+            # Only some dates write; the rest just count down.
+            would_write_about: dues.count { |due| due.field.reminds? }
+          }
+        }
+      end
+
       private
 
       def visible_records

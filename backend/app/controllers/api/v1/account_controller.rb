@@ -46,7 +46,7 @@ module Api
       private
 
       def account_params
-        params.permit(:full_name, :timezone)
+        params.permit(:full_name, :timezone, :reminders_enabled, :reminder_scope)
       end
 
       def revoke_other_sessions

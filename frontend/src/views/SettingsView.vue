@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import api from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
 import { useDialog } from "@/composables/useDialog";
@@ -14,6 +14,7 @@ const SECTIONS = [
   { value: "profile", label: "Profile", icon: "fa-user" },
   { value: "security", label: "Security", icon: "fa-shield-halved" },
   { value: "family", label: "Family", icon: "fa-users" },
+  { value: "reminders", label: "Reminders", icon: "fa-bell" },
   { value: "storage", label: "Storage", icon: "fa-hard-drive" },
 ];
 
@@ -88,6 +89,54 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+/* ---------------------------------------------------------------- reminders */
+
+const reminders = ref({ enabled: true, scope: "family", email: "", would_write_about: 0 });
+const upcoming = ref([]);
+const loadingUpcoming = ref(false);
+const savingReminders = ref(false);
+
+async function loadReminders() {
+  loadingUpcoming.value = true;
+  try {
+    const { data } = await api.get("/records/upcoming");
+    reminders.value = data.reminders;
+    upcoming.value = data.upcoming;
+  } catch {
+    // The section still works without the preview.
+  } finally {
+    loadingUpcoming.value = false;
+  }
+}
+
+async function saveReminders() {
+  savingReminders.value = true;
+  try {
+    await api.patch("/account", {
+      reminders_enabled: reminders.value.enabled,
+      reminder_scope: reminders.value.scope,
+    });
+    await loadReminders();
+    toast.show({ message: "Reminder settings saved" });
+  } catch (e) {
+    error.value = e.userMessage;
+  } finally {
+    savingReminders.value = false;
+  }
+}
+
+watch(section, (value) => {
+  if (value === "reminders" && !upcoming.value.length) loadReminders();
+});
+
+function daysLabel(days) {
+  if (days < 0) return `${Math.abs(days)} days ago`;
+  if (days === 0) return "today";
+  if (days < 45) return `${days} days`;
+  const months = Math.round(days / 30.44);
+  return months < 12 ? `${months} months` : `${Math.round(months / 12)} years`;
 }
 
 async function saveProfile() {
@@ -509,6 +558,130 @@ async function removeMember(member) {
         </div>
 
         <!-- Family -->
+        <div v-else-if="section === 'reminders'" class="space-y-6">
+          <div class="rounded-lg border border-gray-200 bg-white p-6">
+            <h2 class="text-h3 font-semibold text-gray-800">Reminders</h2>
+            <p class="mt-1 text-body-sm text-gray-500">
+              One email a day at most, listing whatever is running out. Nothing is sent when there
+              is nothing to say.
+            </p>
+
+            <div class="mt-5 max-w-md space-y-4">
+              <label class="flex items-start gap-3">
+                <input
+                  v-model="reminders.enabled"
+                  type="checkbox"
+                  class="mt-1 accent-primary-600"
+                />
+                <span>
+                  <span class="block text-body-sm font-medium text-gray-700">Write to me</span>
+                  <span class="block text-caption text-gray-500">
+                    Sent to {{ reminders.email }}
+                  </span>
+                </span>
+              </label>
+
+              <fieldset :class="reminders.enabled ? '' : 'opacity-50'">
+                <legend class="mb-2 text-body-sm font-medium text-gray-700">About</legend>
+                <label class="flex items-start gap-3">
+                  <input
+                    v-model="reminders.scope"
+                    type="radio"
+                    value="family"
+                    :disabled="!reminders.enabled"
+                    class="mt-1 accent-primary-600"
+                  />
+                  <span>
+                    <span class="block text-body-sm text-gray-700">Everything I can see</span>
+                    <span class="block text-caption text-gray-500">
+                      Mine, and whatever the family shares — the car insurance is nobody's in
+                      particular until it lapses.
+                    </span>
+                  </span>
+                </label>
+                <label class="mt-3 flex items-start gap-3">
+                  <input
+                    v-model="reminders.scope"
+                    type="radio"
+                    value="own"
+                    :disabled="!reminders.enabled"
+                    class="mt-1 accent-primary-600"
+                  />
+                  <span>
+                    <span class="block text-body-sm text-gray-700">Only my own records</span>
+                    <span class="block text-caption text-gray-500">
+                      Somebody else in the family will still hear about the shared ones.
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+
+              <button
+                type="button"
+                :disabled="savingReminders"
+                class="rounded-base gradient-main px-5 py-2 text-body font-semibold text-white disabled:opacity-60"
+                @click="saveReminders"
+              >
+                {{ savingReminders ? "Saving…" : "Save changes" }}
+              </button>
+            </div>
+          </div>
+
+          <!-- The setting is abstract until you can see what it would send. -->
+          <div class="rounded-lg border border-gray-200 bg-white p-6">
+            <h2 class="text-h3 font-semibold text-gray-800">What's running out</h2>
+            <p class="mt-1 text-body-sm text-gray-500">
+              <template v-if="reminders.would_write_about">
+                {{ reminders.would_write_about }} of these will be written about. The rest just
+                count down here.
+              </template>
+              <template v-else>
+                Everything here counts down on screen. None of it is due a letter yet.
+              </template>
+            </p>
+
+            <div v-if="loadingUpcoming" class="mt-4 space-y-2">
+              <div v-for="n in 3" :key="n" class="h-10 animate-pulse rounded-base bg-gray-100"></div>
+            </div>
+
+            <p v-else-if="!upcoming.length" class="mt-4 text-body-sm text-gray-500">
+              Nothing in the next few months.
+            </p>
+
+            <ul v-else class="mt-4 divide-y divide-gray-100">
+              <li
+                v-for="item in upcoming"
+                :key="`${item.record_id}-${item.field_key}`"
+                class="flex items-center justify-between gap-3 py-2.5"
+              >
+                <span class="min-w-0">
+                  <RouterLink
+                    :to="{ name: 'record', params: { id: item.record_id } }"
+                    class="block truncate text-body-sm font-medium text-gray-800 hover:text-primary-600"
+                  >
+                    {{ item.title }}
+                  </RouterLink>
+                  <span class="block text-caption text-gray-500">{{ item.label }}</span>
+                </span>
+                <span
+                  :class="[
+                    'shrink-0 text-body-sm font-medium',
+                    item.days < 0
+                      ? 'text-error-600'
+                      : item.days <= 30
+                        ? 'text-error-600'
+                        : item.days <= 90
+                          ? 'text-warning-600'
+                          : 'text-gray-500',
+                  ]"
+                >
+                  {{ daysLabel(item.days) }}
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
         <div v-else-if="section === 'family'" class="space-y-6">
           <!-- An account can belong to several: "Family", "Parents' house",
                "Tax stuff with the accountant". Or to none, which is fine. -->

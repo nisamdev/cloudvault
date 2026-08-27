@@ -131,6 +131,10 @@ Rails.application.routes.draw do
       post "document_captures",         to: "document_captures#create"
 
       resources :records, only: %i[index show create update destroy] do
+        collection do
+          # What is running out — the register banner and the settings preview.
+          get :upcoming
+        end
         # A timed, read-only link to the record and its documents, for somebody
         # outside the family.
         resources :shares, only: %i[index create]
