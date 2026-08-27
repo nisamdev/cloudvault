@@ -97,11 +97,22 @@ const routes = [
         component: () => import("@/views/SharedView.vue"),
         meta: { title: "Shared" },
       },
+      // Two halves of the same cabinet: what belongs to a person, and what
+      // belongs to the house. One component, because they are the same list
+      // with a different half of it showing.
+      {
+        path: "family",
+        name: "family-records",
+        component: () => import("@/views/HouseholdRegisterView.vue"),
+        props: { group: "people" },
+        meta: { title: "Family records" },
+      },
       {
         path: "household",
-        name: "household-register",
+        name: "household",
         component: () => import("@/views/HouseholdRegisterView.vue"),
-        meta: { title: "Register" },
+        props: { group: "household" },
+        meta: { title: "Household" },
       },
       {
         path: "household/new",

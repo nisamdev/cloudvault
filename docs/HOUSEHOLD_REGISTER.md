@@ -83,6 +83,27 @@ listing query touches ciphertext it has no business touching.
 
 ## III. What a family keeps
 
+The cabinet has two drawers, because a passport and a boiler contract have
+nothing to do with each other. **Family records** holds what belongs to a
+person — Passport, Driving licence, Birth certificate, Health card,
+Immigration, Document, Person. **Household** holds what belongs to the house —
+Login, Service account, Property, Vehicle, Money, Subscription, In case of
+emergency. A template says which drawer it is in, and every breadcrumb, cancel
+button and "add" link asks the template rather than guessing.
+
+A record can say **whose it is**, and usually should: four passports in a house
+are four rows with the same word on them otherwise. The holder is a Person
+record rather than an account, because a child holds a passport years before
+they hold a login. It is the `held_by` link that already tied a scan to a
+person, so nothing new was needed to store it — only care that rewriting a
+record's other links does not quietly drop it, since they share a table.
+
+A listing is read by shape before it is read by name. Each kind draws its own
+icon in its own colour, the filter is that same row of icons with a count on
+each, and the badge under a card says whose it is rather than repeating the
+kind the icon already showed.
+
+
 A template says which of its own fields names the record, in `title_from`:
 **Person** is named by `full_name`, **Login** by `name`. Typing "Aisha Rahman"
 into a Title box and then again into Full name is the kind of small stupidity

@@ -20,6 +20,14 @@ class VaultRecord < ApplicationRecord
   # Links point both ways in the UI but are stored once, so a record has to look
   # in both directions to answer "what is this connected to".
   has_many :record_links, dependent: :destroy
+
+  # Whose it is. A passport belongs to a person; a boiler contract belongs to
+  # nobody in particular. Optional on purpose, and a link to a Person record
+  # rather than to an account — a child holds a passport years before they hold
+  # a login.
+  has_one :holder_link, -> { where(relation: "held_by") },
+          class_name: "RecordLink", dependent: :destroy, inverse_of: :vault_record
+  has_one :held_by, through: :holder_link, source: :linked_record
   has_many :linked_records, through: :record_links, source: :linked_record
   has_many :inbound_links, class_name: "RecordLink", foreign_key: :linked_record_id,
                            dependent: :destroy, inverse_of: :linked_record

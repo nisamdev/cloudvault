@@ -10,11 +10,13 @@ import RecordSecretDisplay from "@/components/records/RecordSecretDisplay.vue";
 import RecordSecretInput from "@/components/records/RecordSecretInput.vue";
 import RecordValidity from "@/components/records/RecordValidity.vue";
 import RecordFieldValue from "@/components/records/RecordFieldValue.vue";
+import RecordHolderPicker from "@/components/records/RecordHolderPicker.vue";
 import RecordShareModal from "@/components/records/RecordShareModal.vue";
 import { useFilesStore } from "@/stores/files";
 import { useVaultGate } from "@/composables/useVaultGate";
 import { copyText } from "@/utils/clipboard";
 import { fileIcon } from "@/utils/formatting";
+import { sectionCrumb } from "@/utils/recordSection";
 
 const route = useRoute();
 const vaultGate = useVaultGate();
@@ -29,6 +31,7 @@ const saving = ref(false);
 const copied = ref("");
 const previewFile = ref(null);
 const attachmentIds = ref([]);
+const heldById = ref(null);
 
 const editForm = ref({ title: "", data: {}, visibility: "private" });
 const secretDrafts = ref({});
@@ -81,7 +84,7 @@ const editableFields = computed(
 );
 
 const breadcrumbs = computed(() => [
-  { label: "Register", to: { name: "household-register" } },
+  sectionCrumb(record.value?.template?.group),
   { label: record.value?.title ?? "…" },
 ]);
 
@@ -99,6 +102,7 @@ async function load() {
     const { data } = await api.get(`/records/${route.params.id}`);
     record.value = data.record;
     attachmentIds.value = (data.record.attachments ?? []).map((a) => a.file_id);
+  heldById.value = data.record.held_by?.id ?? null;
     editForm.value = {
       title: data.record.title,
       data: { ...data.record.data },
@@ -113,6 +117,7 @@ async function load() {
 
 function startEdit() {
   attachmentIds.value = (record.value.attachments ?? []).map((a) => a.file_id);
+  heldById.value = record.value.held_by?.id ?? null;
   secretDrafts.value = {};
   editing.value = true;
 }
@@ -120,6 +125,7 @@ function startEdit() {
 function cancelEdit() {
   editing.value = false;
   attachmentIds.value = (record.value.attachments ?? []).map((a) => a.file_id);
+  heldById.value = record.value.held_by?.id ?? null;
   secretDrafts.value = {};
   editForm.value = {
     title: record.value.title,
@@ -148,6 +154,7 @@ async function save() {
         visibility: editForm.value.visibility,
       },
       attachment_ids: attachmentIds.value,
+      held_by_id: heldById.value,
     };
 
     if (Object.keys(touchedSecrets).length) {
@@ -157,6 +164,7 @@ async function save() {
     const { data } = await api.patch(`/records/${record.value.id}`, payload);
     record.value = data.record;
     attachmentIds.value = (data.record.attachments ?? []).map((a) => a.file_id);
+  heldById.value = data.record.held_by?.id ?? null;
     secretDrafts.value = {};
     editing.value = false;
   } catch (e) {
@@ -428,6 +436,26 @@ function openPreview(attachment) {
 
         <!-- What it is attached to -->
         <aside class="space-y-8 lg:border-l lg:border-gray-200 lg:pl-8">
+          <!-- Whose it is. A person is not held by anybody, so the field is
+               offered on everything else. -->
+          <section v-if="record.record_type !== 'person'">
+            <RecordHolderPicker
+              v-if="editing"
+              v-model="heldById"
+              :exclude-id="record.id"
+            />
+            <template v-else-if="record.held_by">
+              <h2 class="mb-2 text-caption uppercase tracking-wider text-gray-500">Whose is it</h2>
+              <RouterLink
+                :to="{ name: 'record', params: { id: record.held_by.id } }"
+                class="flex items-center gap-2 text-body-sm font-medium text-gray-800 transition hover:text-primary-600"
+              >
+                <i class="fas fa-user text-gray-400" aria-hidden="true"></i>
+                {{ record.held_by.name }}
+              </RouterLink>
+            </template>
+          </section>
+
           <section>
             <h2 class="mb-3 text-caption uppercase tracking-wider text-gray-500">Documents</h2>
             <RecordAttachmentPicker

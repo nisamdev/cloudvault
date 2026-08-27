@@ -36,8 +36,16 @@ module RecordTemplates
     def to_h = { key: key, label: label, kind: kind, hint: hint, remind: remind }.compact
   end
 
+  # Which half of the vault a kind of record belongs to.
+  #
+  # A passport is about a person; a boiler service contract is about the house.
+  # Keeping them apart is the difference between a filing cabinet and a drawer
+  # everything gets thrown into.
+  PEOPLE = "people"
+  HOUSEHOLD = "household"
+
   Template = Struct.new(:type, :label, :icon, :summary, :fields, :title_hint, :title_from,
-                        keyword_init: true) do
+                        :group, keyword_init: true) do
     def field(key) = fields.find { |f| f.key == key }
     def expiry_fields = fields.select(&:expiry?)
     def reminding_fields = fields.select(&:reminds?)
@@ -45,7 +53,7 @@ module RecordTemplates
 
     def to_h
       {
-        type: type, label: label, icon: icon, summary: summary,
+        type: type, label: label, icon: icon, summary: summary, group: group,
         title_hint: title_hint, title_from: title_from, fields: fields.map(&:to_h)
       }
     end
@@ -66,6 +74,7 @@ module RecordTemplates
   ALL = [
     Template.new(
       type: "login",
+      group: HOUSEHOLD,
       label: "Login",
       icon: "fa-key",
       summary: "A site, a username and a password — named so you can find it.",
@@ -81,6 +90,7 @@ module RecordTemplates
 
     Template.new(
       type: "service_account",
+      group: HOUSEHOLD,
       label: "Service account",
       icon: "fa-right-to-bracket",
       summary: "Which email, which password, which reference.",
@@ -101,6 +111,7 @@ module RecordTemplates
 
     Template.new(
       type: "passport",
+      group: PEOPLE,
       label: "Passport",
       icon: "fa-passport",
       summary: "The book you cannot travel without, and the date it stops working.",
@@ -124,6 +135,7 @@ module RecordTemplates
 
     Template.new(
       type: "driving_licence",
+      group: PEOPLE,
       label: "Driving licence",
       icon: "fa-id-card",
       summary: "The card, its number, and when the photo runs out.",
@@ -143,6 +155,7 @@ module RecordTemplates
 
     Template.new(
       type: "birth_certificate",
+      group: PEOPLE,
       label: "Birth certificate",
       icon: "fa-certificate",
       summary: "The document everything else is proved from. It never expires.",
@@ -162,6 +175,7 @@ module RecordTemplates
 
     Template.new(
       type: "health_card",
+      group: PEOPLE,
       label: "Health card",
       icon: "fa-kit-medical",
       summary: "The number a surgery asks for, and the card that carries it.",
@@ -180,8 +194,11 @@ module RecordTemplates
 
     Template.new(
       type: "immigration",
+      group: PEOPLE,
       label: "Immigration",
-      icon: "fa-passport",
+      # Not fa-passport: a visa sits beside a passport in this list, and two
+      # kinds drawn with the same glyph defeat the point of drawing them.
+      icon: "fa-stamp",
       summary: "Visas, permits and citizenship — every one carries a date.",
       title_hint: "Skilled Worker visa — UK",
       fields: [
@@ -201,6 +218,7 @@ module RecordTemplates
 
     Template.new(
       type: "document",
+      group: PEOPLE,
       label: "Document",
       icon: "fa-file-lines",
       summary: "Anything official that doesn't have a shelf of its own yet.",
@@ -218,6 +236,7 @@ module RecordTemplates
 
     Template.new(
       type: "property",
+      group: HOUSEHOLD,
       label: "Property",
       icon: "fa-house",
       summary: "The house, and everything the house implies.",
@@ -238,6 +257,7 @@ module RecordTemplates
 
     Template.new(
       type: "person",
+      group: PEOPLE,
       label: "Person",
       icon: "fa-user",
       summary: "Who somebody is. What they hold goes in a document of its own.",
@@ -255,6 +275,7 @@ module RecordTemplates
 
     Template.new(
       type: "vehicle",
+      group: HOUSEHOLD,
       label: "Vehicle",
       icon: "fa-car",
       summary: "Registration, and the dates that cost money when missed.",
@@ -273,6 +294,7 @@ module RecordTemplates
 
     Template.new(
       type: "money",
+      group: HOUSEHOLD,
       label: "Money",
       icon: "fa-building-columns",
       summary: "Accounts and policies — reference numbers, not banking logins.",
@@ -292,6 +314,7 @@ module RecordTemplates
 
     Template.new(
       type: "subscription",
+      group: HOUSEHOLD,
       label: "Subscription",
       icon: "fa-arrows-rotate",
       summary: "What leaves the account every month.",
@@ -311,8 +334,11 @@ module RecordTemplates
 
     Template.new(
       type: "emergency",
+      group: HOUSEHOLD,
       label: "In case of emergency",
-      icon: "fa-kit-medical",
+      # A health card already has the medical kit; this is the other kind of
+      # emergency, and the list is read by shape.
+      icon: "fa-life-ring",
       summary: "Where things are, and who to call.",
       title_hint: "If something happens to me",
       fields: [

@@ -13,7 +13,7 @@ module Api
         scope = scope.search(params[:q]) if params[:q].present?
 
         pagy, records = pagy(
-          scope.recent.includes(:user, :record_links, :linked_records, :record_secrets),
+          scope.recent.includes(:user, :record_links, :linked_records, :record_secrets, :held_by),
           limit: per_page
         )
         pagination_headers(pagy)
@@ -47,6 +47,7 @@ module Api
           record.save!
           sync_attachments!(record, attachment_ids_param) if params.key?(:attachment_ids)
           sync_links!(record, links_param) if params.key?(:links)
+          set_holder!(record) if params.key?(:held_by_id)
           sync_secrets!(record, secrets_param) if params.key?(:secrets)
         end
 
@@ -76,6 +77,7 @@ module Api
           @record.update!(attrs)
           sync_attachments!(@record, attachment_ids_param) if params.key?(:attachment_ids)
           sync_links!(@record, links_param) if params.key?(:links)
+          set_holder!(@record) if params.key?(:held_by_id)
           sync_secrets!(@record, secrets_param) if params.key?(:secrets)
         end
 
@@ -139,6 +141,19 @@ module Api
 
       def attachment_ids_param
         Array(params[:attachment_ids]).map(&:to_i).uniq
+      end
+
+      # Whose record this is. Blank clears it, which is how a document stops
+      # belonging to somebody without being deleted.
+      def set_holder!(record)
+        record.holder_link&.destroy
+        holder_id = params[:held_by_id].presence
+        return if holder_id.blank?
+
+        holder = VaultRecord.active.find_by(id: holder_id, record_type: "person")
+        return if holder.nil? || holder.id == record.id || !RecordPermissions.can_view?(current_user, holder)
+
+        record.record_links.create!(linked_record: holder, relation: "held_by")
       end
 
       def links_param
@@ -208,7 +223,8 @@ module Api
       def sync_links!(record, links)
         return if links.nil?
 
-        record.record_links.destroy_all
+        # The holder is managed on its own, and must survive a links rewrite.
+        record.record_links.where.not(relation: "held_by").destroy_all
         links.each do |link|
           target = visible_records.find_by(id: link[:linked_record_id])
           next unless target
@@ -266,6 +282,7 @@ module Api
           # say "18 days left" instead of "2026-09-14".
           next_expiry: next_expiry_for(record),
           owner: { id: record.user_id, name: record.user.full_name || record.user.email },
+          held_by: record.held_by && { id: record.held_by.id, name: record.held_by.title },
           permissions: {
             can_edit: RecordPermissions.can_edit?(current_user, record),
             can_delete: RecordPermissions.can_delete?(current_user, record)

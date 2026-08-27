@@ -1,24 +1,30 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import api from "@/api/client";
 import RecordBreadcrumb from "@/components/records/RecordBreadcrumb.vue";
 import { recordTypeAccent, recordTypeTint } from "@/utils/recordType";
+import { sectionCrumb } from "@/utils/recordSection";
+
+const route = useRoute();
+
+/** Which half you came from, so only its kinds are offered. */
+const group = computed(() => (route.query.group === "household" ? "household" : "people"));
 
 const templates = ref([]);
 const loading = ref(true);
 const error = ref("");
 const search = ref("");
 
-const breadcrumbs = [
-  { label: "Register", to: { name: "household-register" } },
-  { label: "Add" },
-];
+const breadcrumbs = computed(() => [sectionCrumb(group.value), { label: "Add" }]);
+
+const inSection = computed(() => templates.value.filter((t) => t.group === group.value));
 
 const matches = computed(() => {
   const term = search.value.trim().toLowerCase();
-  if (!term) return templates.value;
+  if (!term) return inSection.value;
 
-  return templates.value.filter((t) =>
+  return inSection.value.filter((t) =>
     [t.label, t.summary, t.title_hint, ...t.fields.map((f) => f.label)]
       .filter(Boolean)
       .join(" ")

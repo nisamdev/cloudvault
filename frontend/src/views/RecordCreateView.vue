@@ -5,10 +5,12 @@ import api from "@/api/client";
 import RecordAttachmentPicker from "@/components/records/RecordAttachmentPicker.vue";
 import RecordBreadcrumb from "@/components/records/RecordBreadcrumb.vue";
 import RecordIcon from "@/components/records/RecordIcon.vue";
+import RecordHolderPicker from "@/components/records/RecordHolderPicker.vue";
 import RecordSecretInput from "@/components/records/RecordSecretInput.vue";
 import DocumentSourcePicker from "@/components/records/DocumentSourcePicker.vue";
 import ScanPageEditor from "@/components/utilities/ScanPageEditor.vue";
 import { useVaultGate } from "@/composables/useVaultGate";
+import { sectionCrumb, sectionFor } from "@/utils/recordSection";
 import {
   FULL_FRAME,
   detectPage,
@@ -28,6 +30,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const attachmentIds = ref([]);
+const heldById = ref(null);
 
 const form = ref({
   title: "",
@@ -76,7 +79,7 @@ const workingTitle = computed(
 const compactSecrets = computed(() => isCompactForm.value || secretFields.value.length === 1);
 
 const breadcrumbs = computed(() => [
-  { label: "Register", to: { name: "household-register" } },
+  sectionCrumb(template.value?.group),
   { label: "Add", to: { name: "record-new" } },
   { label: template.value?.label ?? "…" },
 ]);
@@ -429,21 +432,35 @@ function normalizeData() {
   return data;
 }
 
+/** The name printed on the document, whatever the template calls that field. */
+function nameOnIt() {
+  return (form.value.data.full_name || form.value.data.holder || "").trim();
+}
+
 function resolvedTitle() {
   const manual = form.value.title.trim();
   if (manual) return manual;
+
   const key = titleFieldKey.value;
   if (key) {
     const fromField = form.value.data[key]?.trim();
     if (fromField) return fromField;
   }
+
+  // A document names itself for whose it is and what it is — the same name a
+  // scan gives it. Making somebody type "Aisha's health card" underneath a box
+  // where they have already typed Aisha is the sort of thing that makes a
+  // register feel like paperwork.
+  const name = nameOnIt();
+  if (name) return `${name} — ${template.value.label}`;
+
   return template.value?.title_hint ?? template.value?.label ?? "Untitled";
 }
 
 function canSave() {
-  if (showTitleField.value && !form.value.title.trim()) return false;
-  if (titleFieldKey.value && !form.value.data[titleFieldKey.value]?.trim()) return false;
-  return true;
+  if (titleFieldKey.value) return Boolean(form.value.data[titleFieldKey.value]?.trim());
+
+  return Boolean(form.value.title.trim() || nameOnIt());
 }
 
 async function save() {
@@ -466,6 +483,7 @@ async function save() {
         data: normalizeData(),
       },
       attachment_ids: attachmentIds.value,
+      held_by_id: heldById.value,
     };
 
     if (hasSecrets) {
@@ -526,7 +544,7 @@ async function save() {
             </button>
             <RouterLink
               v-else
-              :to="{ name: 'household-register' }"
+              :to="{ name: sectionFor(template.group).route }"
               class="text-body-sm font-medium text-gray-600 hover:text-gray-800"
             >
               Cancel
@@ -618,9 +636,8 @@ async function save() {
                 id="record-title"
                 v-model="form.title"
                 type="text"
-                required
                 autofocus
-                :placeholder="template.title_hint"
+                :placeholder="resolvedTitle()"
                 class="mt-1 w-full border-b-2 border-gray-200 bg-transparent pb-1 text-h2 font-bold text-gray-800 outline-none transition placeholder:font-normal placeholder:text-gray-300 focus:border-primary-400"
               />
               <p v-if="identityField?.hint" class="mt-1 text-caption text-gray-500">
@@ -631,7 +648,7 @@ async function save() {
 
           <div class="flex shrink-0 items-center gap-3">
             <RouterLink
-              :to="{ name: 'household-register' }"
+              :to="{ name: sectionFor(template.group).route }"
               class="text-body-sm font-medium text-gray-600 hover:text-gray-800"
             >
               Cancel
@@ -815,6 +832,9 @@ async function save() {
               <h2 class="mb-3 text-caption uppercase tracking-wider text-gray-500">Documents</h2>
               <RecordAttachmentPicker v-model="attachmentIds" :visibility="form.visibility" />
             </div>
+
+            <!-- A person is not held by anybody; everything else might be. -->
+            <RecordHolderPicker v-if="template.type !== 'person'" v-model="heldById" />
 
             <div>
               <label for="record-visibility" class="mb-2 block text-caption uppercase tracking-wider text-gray-500">

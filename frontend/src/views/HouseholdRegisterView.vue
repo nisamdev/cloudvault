@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import api from "@/api/client";
 import RecordIcon from "@/components/records/RecordIcon.vue";
@@ -7,24 +7,67 @@ import ScanModal from "@/components/files/ScanModal.vue";
 import { siteDomain } from "@/utils/recordIcon";
 import { recordTypeAccent, recordTypeTint } from "@/utils/recordType";
 import { expiryState, formatRecordDate } from "@/utils/recordDate";
+import { sectionFor } from "@/utils/recordSection";
 
-const records = ref([]);
+/** "people" — a person's documents; "household" — the house's affairs. */
+const props = defineProps({
+  group: { type: String, default: "people" },
+});
+
+const allRecords = ref([]);
 const templates = ref([]);
 const loading = ref(true);
 const error = ref("");
 const search = ref("");
 const typeFilter = ref("");
+const holderFilter = ref("");
 const scanning = ref(false);
+
+const section = computed(() => sectionFor(props.group));
+
+/** The kinds that live in this half, in the order the templates declare them. */
+const kinds = computed(() => templates.value.filter((t) => t.group === props.group));
+const kindTypes = computed(() => new Set(kinds.value.map((t) => t.type)));
+
+/** Everything in this half, before the filters on screen narrow it. */
+const records = computed(() => allRecords.value.filter((r) => kindTypes.value.has(r.record_type)));
+
+/** How many of each kind, so a filter can say what it would leave you. */
+const countByType = computed(() =>
+  records.value.reduce((counts, record) => {
+    counts[record.record_type] = (counts[record.record_type] ?? 0) + 1;
+    return counts;
+  }, {}),
+);
+
+/** Only offer a filter for a kind there is something to filter. */
+const kindsPresent = computed(() => kinds.value.filter((t) => countByType.value[t.type]));
+
+/**
+ * Whose documents these are — built from the records themselves rather than
+ * from the family, so somebody with no login still appears the moment they
+ * hold something.
+ */
+const holders = computed(() => {
+  const found = new Map();
+  for (const record of records.value) {
+    if (record.held_by) found.set(record.held_by.id, record.held_by);
+  }
+
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+});
 
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase();
   return records.value.filter((record) => {
     if (typeFilter.value && record.record_type !== typeFilter.value) return false;
+    if (holderFilter.value && String(record.held_by?.id ?? "") !== holderFilter.value) return false;
     if (!term) return true;
     const haystack = [
       record.title,
       record.type_label,
       record.website,
+      record.held_by?.name,
       ...(record.highlights ?? []).map((h) => h.value),
     ]
       .filter(Boolean)
@@ -34,7 +77,18 @@ const filtered = computed(() => {
   });
 });
 
-const loginCount = computed(() => records.value.filter((r) => r.record_type === "login").length);
+const anyFilter = computed(() => Boolean(typeFilter.value || holderFilter.value || search.value));
+
+function clearFilters() {
+  typeFilter.value = "";
+  holderFilter.value = "";
+  search.value = "";
+}
+
+/** Clicking the kind you are already filtered to takes the filter off again. */
+function toggleType(type) {
+  typeFilter.value = typeFilter.value === type ? "" : type;
+}
 
 const router = useRouter();
 
@@ -58,6 +112,10 @@ function onScanned(receipt) {
   });
 }
 
+// The same component serves both halves, so moving between them must not carry
+// a filter across into a list where it means nothing.
+watch(() => props.group, clearFilters);
+
 onMounted(load);
 
 async function load() {
@@ -68,7 +126,7 @@ async function load() {
       api.get("/records"),
       api.get("/record_templates"),
     ]);
-    records.value = recordsRes.data.records;
+    allRecords.value = recordsRes.data.records;
     templates.value = templatesRes.data.templates;
   } catch (e) {
     error.value = e.userMessage;
@@ -112,7 +170,10 @@ function recordSubtitle(record) {
   }
 
   if (highlights.length) return highlights.slice(0, 2).join(" · ");
-  return record.type_label;
+
+  // The badge below already says what kind of thing this is. Repeating it
+  // here just fills the line with the same word twice.
+  return "";
 }
 </script>
 
@@ -120,14 +181,23 @@ function recordSubtitle(record) {
   <section>
     <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-h2 font-bold text-gray-800">Register</h1>
-        <p v-if="!loading && records.length" class="mt-1 text-body-sm text-gray-500">
-          {{ records.length }} {{ records.length === 1 ? "record" : "records" }}
-          <template v-if="loginCount"> · {{ loginCount }} {{ loginCount === 1 ? "login" : "logins" }}</template>
+        <h1 class="text-h2 font-bold text-gray-800">{{ section.label }}</h1>
+        <p v-if="!loading" class="mt-1 text-body-sm text-gray-500">
+          <template v-if="records.length">
+            {{ records.length }} {{ records.length === 1 ? "record" : "records" }}
+            <template v-if="holders.length">
+              · {{ holders.length }} {{ holders.length === 1 ? "person" : "people" }}
+            </template>
+          </template>
+          <template v-else-if="group === 'people'">
+            Passports, licences and certificates, filed under whose they are.
+          </template>
+          <template v-else>The house's accounts, property and money.</template>
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
         <button
+          v-if="group === 'people'"
           type="button"
           class="rounded-base border border-gray-300 bg-white px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
           @click="scanning = true"
@@ -136,6 +206,7 @@ function recordSubtitle(record) {
           Scan a document
         </button>
         <RouterLink
+          v-else
           :to="{ name: 'record-create', params: { type: 'login' } }"
           class="rounded-base border border-primary-200 bg-primary-50 px-4 py-2 text-body-sm font-medium text-primary-700 transition hover:bg-primary-100"
         >
@@ -143,7 +214,7 @@ function recordSubtitle(record) {
           Add login
         </RouterLink>
         <RouterLink
-          :to="{ name: 'record-new' }"
+          :to="{ name: 'record-new', query: { group } }"
           class="rounded-base bg-primary-600 px-4 py-2 text-body-sm font-medium text-white transition hover:bg-primary-700"
         >
           Add record
@@ -170,15 +241,58 @@ function recordSubtitle(record) {
         />
       </div>
       <select
-        v-model="typeFilter"
-        aria-label="Filter by type"
-        class="rounded-base border border-gray-300 px-3 py-2.5 text-body-sm outline-none focus:ring-2 focus:ring-primary-500 sm:w-48"
+        v-if="holders.length"
+        v-model="holderFilter"
+        aria-label="Filter by whose it is"
+        class="rounded-base border border-gray-300 px-3 py-2.5 text-body-sm outline-none focus:ring-2 focus:ring-primary-500 sm:w-52"
       >
-        <option value="">All types</option>
-        <option v-for="template in templates" :key="template.type" :value="template.type">
-          {{ template.label }}
+        <option value="">Anyone's</option>
+        <option v-for="holder in holders" :key="holder.id" :value="String(holder.id)">
+          {{ holder.name }}
         </option>
       </select>
+    </div>
+
+    <!-- The kinds, as the icons the cards carry. Reading a row of icons is
+         quicker than reading a dropdown, and it doubles as a count of what is
+         actually filed. -->
+    <div v-if="kindsPresent.length > 1" class="mb-5 flex flex-wrap items-center gap-2">
+      <button
+        v-for="kind in kindsPresent"
+        :key="kind.type"
+        type="button"
+        :aria-pressed="typeFilter === kind.type"
+        :title="kind.label"
+        :class="[
+          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
+          typeFilter === kind.type
+            ? 'border-transparent shadow-sm'
+            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+        ]"
+        :style="
+          typeFilter === kind.type
+            ? { backgroundColor: recordTypeTint(kind.type), color: recordTypeAccent(kind.type) }
+            : {}
+        "
+        @click="toggleType(kind.type)"
+      >
+        <i
+          :class="['fas', kind.icon]"
+          :style="{ color: recordTypeAccent(kind.type) }"
+          aria-hidden="true"
+        ></i>
+        {{ kind.label }}
+        <span class="tabular-nums opacity-60">{{ countByType[kind.type] }}</span>
+      </button>
+
+      <button
+        v-if="anyFilter"
+        type="button"
+        class="rounded-full px-3 py-1.5 text-body-sm font-medium text-gray-500 underline transition hover:text-gray-700"
+        @click="clearFilters"
+      >
+        Clear
+      </button>
     </div>
 
     <div v-if="loading" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -223,6 +337,8 @@ function recordSubtitle(record) {
               :title="record.title"
               :website="record.website"
               :type-icon="record.type_icon"
+              :record-type="record.record_type"
+              :fallback="record.record_type === 'person' ? 'initials' : 'kind'"
               size="md"
             />
             <div class="min-w-0 flex-1 pt-0.5">
@@ -241,7 +357,18 @@ function recordSubtitle(record) {
           </div>
 
           <div class="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
+            <!-- The icon already says what kind of thing this is, so the
+                 badge says whose it is instead — the more useful half of
+                 "Aisha's passport" once a house holds four of them. -->
             <span
+              v-if="record.held_by"
+              class="flex min-w-0 items-center gap-1.5 truncate text-caption font-medium text-gray-600"
+            >
+              <i class="fas fa-user text-gray-400" aria-hidden="true"></i>
+              {{ record.held_by.name }}
+            </span>
+            <span
+              v-else
               class="truncate rounded-full px-2 py-0.5 text-caption font-medium"
               :style="{
                 backgroundColor: recordTypeTint(record.record_type),
