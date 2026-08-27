@@ -36,7 +36,8 @@ module RecordTemplates
     def to_h = { key: key, label: label, kind: kind, hint: hint, remind: remind }.compact
   end
 
-  Template = Struct.new(:type, :label, :icon, :summary, :fields, :title_hint, keyword_init: true) do
+  Template = Struct.new(:type, :label, :icon, :summary, :fields, :title_hint, :title_from,
+                        keyword_init: true) do
     def field(key) = fields.find { |f| f.key == key }
     def expiry_fields = fields.select(&:expiry?)
     def reminding_fields = fields.select(&:reminds?)
@@ -45,7 +46,7 @@ module RecordTemplates
     def to_h
       {
         type: type, label: label, icon: icon, summary: summary,
-        title_hint: title_hint, fields: fields.map(&:to_h)
+        title_hint: title_hint, title_from: title_from, fields: fields.map(&:to_h)
       }
     end
   end
@@ -69,6 +70,7 @@ module RecordTemplates
       icon: "fa-key",
       summary: "A site, a username and a password — named so you can find it.",
       title_hint: "Netflix",
+      title_from: "name",
       fields: [
         field("name", "Name", "text", "What you'd search for — Netflix, Gmail, the router…"),
         field("website", "Site URL", "url"),
@@ -98,6 +100,85 @@ module RecordTemplates
     ),
 
     Template.new(
+      type: "passport",
+      label: "Passport",
+      icon: "fa-passport",
+      summary: "The book you cannot travel without, and the date it stops working.",
+      title_hint: "Aisha's passport",
+      fields: [
+        field("full_name", "Full name", "text", "As printed, not as used"),
+        field("passport_number", "Passport number", "reference"),
+        field("nationality", "Nationality"),
+        field("date_of_birth", "Date of birth", "date"),
+        field("place_of_birth", "Place of birth"),
+        field("sex", "Sex"),
+        field("issued_on", "Issued", "date"),
+        # Many countries want six months left on a passport before they let you
+        # in, so the first reminder comes long before the date itself.
+        field("expires_on", "Expires", "expiry", "Reminders start six months out", remind: LONG_REMINDERS),
+        field("place_of_issue", "Place of issue"),
+        field("authority", "Issuing authority", "text", "HM Passport Office, consulate…"),
+        field("notes", "Notes", "multiline")
+      ]
+    ),
+
+    Template.new(
+      type: "driving_licence",
+      label: "Driving licence",
+      icon: "fa-id-card",
+      summary: "The card, its number, and when the photo runs out.",
+      title_hint: "Aisha's driving licence",
+      fields: [
+        field("full_name", "Full name"),
+        field("licence_number", "Licence number", "reference"),
+        field("date_of_birth", "Date of birth", "date"),
+        field("issued_on", "Issued", "date"),
+        field("expires_on", "Expires", "expiry", remind: SHORT_REMINDERS),
+        field("authority", "Issuing authority", "text", "DVLA, DVA…"),
+        field("categories", "Entitlements", "text", "The vehicle categories on the back"),
+        field("address", "Address on the card", "multiline"),
+        field("notes", "Notes", "multiline")
+      ]
+    ),
+
+    Template.new(
+      type: "birth_certificate",
+      label: "Birth certificate",
+      icon: "fa-certificate",
+      summary: "The document everything else is proved from. It never expires.",
+      title_hint: "Aisha's birth certificate",
+      fields: [
+        field("full_name", "Full name"),
+        field("date_of_birth", "Date of birth", "date"),
+        field("place_of_birth", "Place of birth"),
+        field("registration_number", "Entry or registration number", "reference"),
+        field("registered_on", "Registered", "date"),
+        field("district", "Registration district"),
+        field("mother", "Mother"),
+        field("father", "Father"),
+        field("notes", "Notes", "multiline")
+      ]
+    ),
+
+    Template.new(
+      type: "health_card",
+      label: "Health card",
+      icon: "fa-kit-medical",
+      summary: "The number a surgery asks for, and the card that carries it.",
+      title_hint: "Aisha's NHS number",
+      fields: [
+        field("full_name", "Full name"),
+        field("nhs_number", "NHS or health number", "reference"),
+        field("date_of_birth", "Date of birth", "date"),
+        field("gp_practice", "GP or clinic"),
+        field("blood_group", "Blood group"),
+        # An NHS number is for life; a GHIC or an insurance card is not.
+        field("expires_on", "Expires", "expiry", "Only some cards run out — a GHIC does", remind: SHORT_REMINDERS),
+        field("notes", "Notes", "multiline")
+      ]
+    ),
+
+    Template.new(
       type: "immigration",
       label: "Immigration",
       icon: "fa-passport",
@@ -113,6 +194,24 @@ module RecordTemplates
         field("sponsor", "Sponsor or employer"),
         field("application_ref", "Application reference", "reference"),
         field("conditions", "Conditions", "multiline", "Work restrictions, no recourse to public funds…"),
+        field("notes", "Notes", "multiline")
+      ]
+    ),
+
+
+    Template.new(
+      type: "document",
+      label: "Document",
+      icon: "fa-file-lines",
+      summary: "Anything official that doesn't have a shelf of its own yet.",
+      title_hint: "Marriage certificate",
+      fields: [
+        field("document_kind", "What it is", "text", "Marriage certificate, degree, NI card…"),
+        field("full_name", "Held by"),
+        field("document_number", "Reference or number", "reference"),
+        field("issued_on", "Issued", "date"),
+        field("expires_on", "Expires", "expiry", "Leave blank if it doesn't run out"),
+        field("authority", "Issued by"),
         field("notes", "Notes", "multiline")
       ]
     ),
@@ -141,19 +240,15 @@ module RecordTemplates
       type: "person",
       label: "Person",
       icon: "fa-user",
-      summary: "A family member, and the numbers that belong to them.",
+      summary: "Who somebody is. What they hold goes in a document of its own.",
       title_hint: "Aisha Rahman",
+      title_from: "full_name",
       fields: [
         field("full_name", "Full name"),
         field("date_of_birth", "Date of birth", "date"),
-        field("passport_number", "Passport number", "reference"),
-        # Many countries want six months left on a passport before they let you in.
-        field("passport_expires_on", "Passport expires", "expiry", remind: LONG_REMINDERS),
-        field("licence_number", "Driving licence number", "reference"),
-        field("licence_expires_on", "Licence expires", "expiry", remind: SHORT_REMINDERS),
         field("national_id", "National insurance / ID", "reference"),
-        field("nhs_number", "NHS number", "reference"),
         field("blood_group", "Blood group"),
+        field("relationship", "Relationship", "text", "Mum, son, myself…"),
         field("notes", "Notes", "multiline")
       ]
     ),

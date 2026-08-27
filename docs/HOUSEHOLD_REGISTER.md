@@ -83,14 +83,18 @@ listing query touches ciphertext it has no business touching.
 
 ## III. What a family keeps
 
-Two types name themselves from a field rather than a separate title: **Person**
-from `full_name`, and anything with a `name`. Typing "Aisha Rahman" into a Title
-box and then again into Full name is the kind of small stupidity that makes a
-register feel like paperwork.
+A template says which of its own fields names the record, in `title_from`:
+**Person** is named by `full_name`, **Login** by `name`. Typing "Aisha Rahman"
+into a Title box and then again into Full name is the kind of small stupidity
+that makes a register feel like paperwork.
 
+A document is not named that way, and the field cannot be guessed from its
+name — a passport also carries a full name, and naming the record after it
+leaves somebody with four records all called their own name. So a scanned
+document is named for whose it is *and* what it is: "Aisha Rahman — Passport".
 
-Nine starting templates. Every record also takes custom fields invented on the
-spot.
+Fourteen starting templates. Every record also takes custom fields invented on
+the spot.
 
 - **Login** — a plain website account: site, username, *password*
 - **Service account** — provider, account email, username, website, customer ref,
@@ -99,8 +103,20 @@ spot.
   sponsor, application ref, conditions, scan
 - **Property** — address, owned/rented, purchase date, title number, council tax
   ref, gas meter, electric meter, deed
-- **Person** — full name, date of birth, passport no., **passport expiry**,
-  licence no., national ID, passport scan
+- **Person** — full name, date of birth, national ID, blood group, relationship.
+  Who somebody *is*. What they hold is a document of its own, linked back with
+  `held_by`
+- **Passport** — full name, passport no., nationality, date & place of birth,
+  issued, **expires**, place of issue, authority, scan
+- **Driving licence** — full name, licence no., date of birth, issued,
+  **expires**, authority, entitlements, address, scan
+- **Birth certificate** — full name, date & place of birth, entry no.,
+  registered, district, mother, father, scan. Nothing on it expires
+- **Health card** — full name, NHS or health number, date of birth, GP, blood
+  group, **expires** (a GHIC does; an NHS number does not), scan
+- **Document** — the catch-all: what it is, held by, reference, issued,
+  **expires**, issued by. Somewhere to put a marriage certificate without
+  inventing a template for it
 - **Vehicle** — registration, make & model, VIN, **insurance renewal**, **MOT
   due**, V5C
 - **Money** — institution, account name, sort code, account no., policy no.,
@@ -298,6 +314,120 @@ can reset quotas but cannot open a private section is a much safer thing to
 build, and once the extension holds the key that stops being a promise.
 
 ---
+
+## Scanning a document into a record
+
+Photograph a passport, pick what it is, and get a filled-in form to check. No
+model involved, and none needed.
+
+**You say what the document is.** That single choice removes the hardest part —
+working out what a document is from its text — and leaves the part machines are
+good at: pulling known fields out of a known shape.
+
+**The documents worth filing are machine-readable by design.** A passport or a
+residence permit carries a machine-readable zone: fixed columns and *check
+digits*. It can be parsed exactly and then verified, so the document itself says
+whether it was read correctly. A UK licence number encodes the surname, birth
+date and sex of the holder, so the card carries its own second opinion. An NHS
+number has a modulus-11 check digit. An LLM would be less accurate here, and
+could not check itself.
+
+Proved on a photographed page with no text layer: tesseract misread `UTO` as
+`UT0`, and the check digits still produced the right date of birth.
+
+**It suggests; it never files.** Everything comes back as a form to confirm. That
+means imperfect reading is still worth having — correcting two fields beats
+typing eleven — and a wrong guess is never quietly saved.
+
+The pages become a PDF, which is both what gets attached to the record and what
+gets read. One artefact, so the thing kept is exactly the thing that was read,
+and it is already in the format you would send to somebody.
+
+**The phone is the camera; the computer does the rest.** The register has its
+own QR code. The phone opens it, asks which document this is, takes the
+photograph and sends it — and stops there. The desktop opens the right form on
+its own, and that form runs the whole finish: straighten the pages, build the
+PDF, read it, fill itself in, and show the scan beside the fields to check
+against.
+
+Splitting it there is the whole point. Trimming a photograph and deciding
+whether a machine read a passport number correctly are both things somebody has
+to *look* at, and a phone is the worst screen in the house to look at them on.
+Nothing is filed until the person has been through it: the pages wait as
+unattached blobs behind a signed id that expires in two hours, and a nightly
+sweep releases whatever nobody came back for.
+
+Two things this cost, both found by testing rather than by reading:
+
+- The phone's "document" style lifts contrast with a histogram stretch, which
+  helps a person read a photo and clips a crisp page until tesseract sees
+  nothing. Pages being kept still get it; pages being read do not.
+- A licence number cannot be looked for by its edges. OCR puts a space where the
+  card prints one and hangs a stray letter off the end where the card has a
+  border, so a pattern anchored on word boundaries finds nothing on a real
+  photograph. It is found instead by sliding a sixteen-character window along
+  the long runs until one has the right shape.
+
+The card carries no check digit, so "confirmed" can only mean the number
+agreeing with what is printed beside it — the licence number encodes the date of
+birth and the surname, and those two readings agreeing is as close to a check
+digit as the document gets. Where they disagree, the value is still offered and
+simply not vouched for.
+
+**Or from a document already filed.** The QR code is for a document in your
+hand; a scan already in My Files needs no phone at all. The form offers "Fill
+this in from a scan", which lists what OCR can actually open — photographs and
+PDFs, documents before photographs, because the whole vault newest-first buries
+one scanned licence under a month of pictures. Same crop, same read, and
+"Adjust and read again" to go round once more after seeing what it got wrong.
+
+Reading again replaces the PDF from the last attempt rather than leaving
+another near-identical scan behind, and walking away from the form takes its
+scan with it. The file only ever existed to be attached to a record.
+
+A PDF that carries real text is read as it is. A scanned one is a photograph
+and is treated as one — including being rendered large enough to crop out of,
+which is not the size a page-turner needs.
+
+**A licence is a different document in every country**, and none of them says
+so in a way a machine can rely on, so each reader is tried until one recognises
+the page. There are two: the UK's DVLA card, and Alberta's — which most of the
+Canadian provinces follow closely enough to be worth trying.
+
+Nothing on the Canadian card checks anything else on it, so it vouches for
+nothing and every field comes back as something to look at. What it does have
+is shape, which is all that survives OCR: the number is closed up before it is
+looked for, because the card's kerning invites "1786 11- 770"; the dates are
+sorted by order when their labels were misread, since nobody is born after
+their licence was issued; and the address is found by its province when the
+postcode — three characters of the smallest print on the card — comes back as
+"ce".
+
+`DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,CanadianLicence,HealthCard}`,
+`DocumentReader`, `POST /document_captures`, `GET /document_captures/page/:id`,
+`purpose` on the scan session, and `PurgeHeldScansJob`.
+
+### Handing one to somebody outside the family
+
+Sharing with the family is a property of the record: who inside the house can
+see it. Handing a passport to a landlord is the other thing entirely, and it
+now has its own control — a link that stops working on a date you pick, is
+revocable before then, and can carry a password you say over the phone.
+
+The person at the other end needs no account. They get the record's details
+read-only and every document on it to view and download, on a page that says
+so plainly. They never get a secret: a record's passwords are encrypted under a
+passphrase the link does not have and could not hand over if it did.
+
+A share link used to point at one file. It now points at one file *or* one
+record, with a check constraint saying exactly that — two, or none, is a link
+nobody can follow. A record share only ever opens its own documents; asking it
+for any other file is a 404, or a link to one record would be a way to read the
+vault.
+
+And the attached PDFs have a download button on the record itself. It is always
+visible rather than appearing on hover, because half the family reads this on a
+phone.
 
 ## Still open, outside the numbered steps
 

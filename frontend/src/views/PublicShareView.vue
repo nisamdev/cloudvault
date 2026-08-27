@@ -10,7 +10,7 @@ const HEIC_TYPES = ["image/heic", "image/heif", "image/avif"];
 
 const share = ref(null);
 const loading = ref(true);
-const downloading = ref(false);
+const downloading = ref(null);
 const password = ref("");
 const error = ref("");
 const unavailable = ref(false);
@@ -29,6 +29,9 @@ onMounted(async () => {
   }
 });
 
+/** A link to a record shows its details and every document on it. */
+const isRecord = computed(() => share.value?.kind === "record");
+
 // Photos going down a public link are cleaned of where they were taken, and a
 // HEIC has to be re-encoded to lose it — so the file that arrives is a JPEG.
 // Saying so beats a recipient wondering why the extension changed.
@@ -40,26 +43,42 @@ const privacyNote = computed(() => {
     : "Location and camera details are removed from shared photos.";
 });
 
-async function download() {
-  downloading.value = true;
+/**
+ * @param file the document to fetch, when the link is to a record. A record
+ *   share has several, and the link only ever opens its own.
+ */
+async function download(file = null) {
+  downloading.value = file?.id ?? "only";
   error.value = "";
 
   try {
     const { data } = await api.post(`/shares/${route.params.token}/download`, {
       password: password.value || undefined,
+      file_id: file?.id,
     });
     window.location.assign(data.url);
   } catch (e) {
     error.value = e.userMessage;
   } finally {
-    downloading.value = false;
+    downloading.value = null;
   }
+}
+
+function formatValue(detail) {
+  if (!["date", "expiry"].includes(detail.kind)) return detail.value;
+
+  // A bare date is a calendar day, not an instant: parsing it as UTC shows the
+  // day before to anybody west of Greenwich.
+  const [year, month, day] = detail.value.split("-").map(Number);
+  if (!year || !month || !day) return detail.value;
+
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, { dateStyle: "long" });
 }
 </script>
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-    <div class="w-full max-w-md">
+    <div :class="['w-full', isRecord ? 'max-w-2xl' : 'max-w-md']">
       <div class="mb-6 flex items-center justify-center gap-2">
         <i class="fas fa-cloud text-2xl text-primary-600" aria-hidden="true"></i>
         <span class="text-h3 font-bold text-gray-800">CloudVault</span>
@@ -68,8 +87,95 @@ async function download() {
       <div class="rounded-xl bg-white p-8 text-center shadow-lg">
         <div v-if="loading" class="py-8">
           <i class="fas fa-circle-notch fa-spin text-2xl text-gray-400" aria-hidden="true"></i>
-          <p class="mt-3 text-body text-gray-500">Opening shared file…</p>
+          <p class="mt-3 text-body text-gray-500">Opening what was shared with you…</p>
         </div>
+
+        <!-- A record: its details, and every document attached to it. -->
+        <template v-else-if="isRecord">
+          <p class="text-caption uppercase tracking-wider text-gray-500">
+            {{ share.record.type_label }}
+          </p>
+          <h1 class="mt-1 break-words text-h2 font-bold text-gray-800">{{ share.record.title }}</h1>
+          <p class="mt-1 text-body-sm text-gray-500">
+            Shared by {{ share.record.shared_by }}
+          </p>
+          <p v-if="share.expires_at" class="mt-1 text-caption text-gray-400">
+            This link stops working
+            {{ new Date(share.expires_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) }}
+          </p>
+
+          <p
+            v-if="error"
+            role="alert"
+            class="mt-4 rounded-base bg-error-50 px-4 py-3 text-body-sm text-error-600"
+          >
+            {{ error }}
+          </p>
+
+          <div v-if="share.requires_password" class="mt-6 text-left">
+            <label for="share-password" class="mb-2 block text-body-sm font-medium text-gray-700">
+              This link is password protected
+            </label>
+            <input
+              id="share-password"
+              v-model="password"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter password"
+              class="w-full rounded-base border border-gray-300 px-4 py-2 outline-none focus:border-transparent focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <dl
+            v-if="share.record.details.length"
+            class="mt-6 grid gap-x-8 gap-y-4 border-t border-gray-200 pt-6 text-left sm:grid-cols-2"
+          >
+            <div v-for="detail in share.record.details" :key="detail.label" class="min-w-0">
+              <dt class="text-caption uppercase tracking-wider text-gray-500">{{ detail.label }}</dt>
+              <dd
+                :class="[
+                  'mt-0.5 break-words text-body text-gray-800',
+                  ['reference', 'number'].includes(detail.kind) ? 'font-mono' : '',
+                ]"
+              >
+                {{ formatValue(detail) }}
+              </dd>
+            </div>
+          </dl>
+
+          <section v-if="share.record.documents.length" class="mt-6 border-t border-gray-200 pt-6 text-left">
+            <h2 class="mb-3 text-caption uppercase tracking-wider text-gray-500">Documents</h2>
+            <ul class="space-y-2">
+              <li
+                v-for="file in share.record.documents"
+                :key="file.id"
+                class="flex items-center gap-3 rounded-base border border-gray-200 px-3 py-2"
+              >
+                <i :class="['fas shrink-0', fileIcon(file).icon, fileIcon(file).className]" aria-hidden="true"></i>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-body-sm text-gray-800">{{ file.name }}</span>
+                  <span class="block text-caption text-gray-500">{{ formatFileSize(file.size) }}</span>
+                </span>
+                <button
+                  type="button"
+                  :disabled="downloading === file.id || (share.requires_password && !password)"
+                  class="shrink-0 rounded-base bg-primary-600 px-3 py-1.5 text-body-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
+                  @click="download(file)"
+                >
+                  <i
+                    :class="['fas mr-1.5', downloading === file.id ? 'fa-circle-notch fa-spin' : 'fa-download']"
+                    aria-hidden="true"
+                  ></i>
+                  {{ downloading === file.id ? "Preparing…" : "Download" }}
+                </button>
+              </li>
+            </ul>
+          </section>
+
+          <p class="mt-6 text-caption text-gray-400">
+            Read-only. Nothing here can be changed, and the link can be withdrawn at any time.
+          </p>
+        </template>
 
         <template v-else-if="share">
           <i
@@ -95,7 +201,7 @@ async function download() {
             {{ error }}
           </p>
 
-          <form class="mt-6 space-y-4" novalidate @submit.prevent="download">
+          <form class="mt-6 space-y-4" novalidate @submit.prevent="download()">
             <div v-if="share.requires_password" class="text-left">
               <label for="share-password" class="mb-2 block text-body-sm font-medium text-gray-700">
                 This file is password protected

@@ -344,18 +344,32 @@ function turnCorners(current, degrees) {
               @pointerdown="startEdge($event, edge.index)"
             />
 
+            <!-- A corner sitting on the edge of the frame has half of itself
+                 clipped away, and a crop always starts there. The invisible
+                 disc behind each one is what makes it possible to take hold
+                 of: it is what the pointer actually hits. -->
+            <circle
+              v-for="(corner, i) in corners"
+              :key="`grab-${i}`"
+              :cx="corner.x * working.width"
+              :cy="corner.y * working.height"
+              :r="handleRadius * 1.9"
+              class="cursor-grab"
+              fill="transparent"
+              @pointerdown="startCorner($event, i)"
+            />
+
             <circle
               v-for="(corner, i) in corners"
               :key="`corner-${i}`"
               :cx="corner.x * working.width"
               :cy="corner.y * working.height"
               :r="handleRadius"
-              class="cursor-grab"
+              class="pointer-events-none"
               fill="white"
               stroke="var(--color-primary-600)"
               stroke-width="3"
               vector-effect="non-scaling-stroke"
-              @pointerdown="startCorner($event, i)"
             />
           </svg>
         </div>

@@ -125,7 +125,15 @@ Rails.application.routes.draw do
 
       # --- Household register -----------------------------------------------
       resources :record_templates, only: %i[index]
+      # Photograph a document, get a filled-in form back to check.
+      get  "document_captures/presets", to: "document_captures#presets"
+      get  "document_captures/page/:id", to: "document_captures#page", as: :document_capture_page
+      post "document_captures",         to: "document_captures#create"
+
       resources :records, only: %i[index show create update destroy] do
+        # A timed, read-only link to the record and its documents, for somebody
+        # outside the family.
+        resources :shares, only: %i[index create]
         get "secrets/:key/reveal", to: "record_secrets#reveal"
         get "secrets/:key/history", to: "record_secrets#history"
         get "secrets/:key/history/:version_id/reveal", to: "record_secrets#reveal_version"

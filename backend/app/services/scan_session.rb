@@ -15,20 +15,26 @@ class ScanSession
   RECEIPT_TTL = 30.minutes
   SCOPE = "scan"
 
-  attr_reader :user, :folder_id, :visibility, :expires_at
+  attr_reader :user, :folder_id, :visibility, :expires_at, :purpose, :preset
 
-  def self.create(user:, folder_id: nil, visibility: "private", ttl: DEFAULT_TTL, base_url: nil)
+  # @param purpose ["files", "record"] what the phone is being asked for
+  # @param preset [String, nil] which kind of document, when it is a record
+  def self.create(user:, folder_id: nil, visibility: "private", ttl: DEFAULT_TTL, base_url: nil,
+                  purpose: "files", preset: nil)
     expires_at = ttl.from_now
 
     token = JwtService.encode_scan(
       user_id: user.id,
       folder_id: folder_id,
       visibility: visibility,
-      expires_in: ttl
+      expires_in: ttl,
+      purpose: purpose,
+      preset: preset
     )
 
     new(user: user, folder_id: folder_id, visibility: visibility, expires_at: expires_at,
-        token: token, base_url: base_url, jti: JwtService.decode_scan(token)["jti"])
+        token: token, base_url: base_url, jti: JwtService.decode_scan(token)["jti"],
+        purpose: purpose, preset: preset)
   end
 
   def self.from_token(token)
@@ -42,11 +48,14 @@ class ScanSession
       visibility: payload["visibility"].presence || "private",
       expires_at: Time.zone.at(payload["exp"]),
       token: token,
-      jti: payload["jti"]
+      jti: payload["jti"],
+      purpose: payload["purpose"].presence || "files",
+      preset: payload["preset"]
     )
   end
 
-  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private", base_url: nil, jti: nil)
+  def initialize(user:, expires_at:, token:, folder_id: nil, visibility: "private", base_url: nil,
+                 jti: nil, purpose: "files", preset: nil)
     @user = user
     @folder_id = folder_id
     @visibility = visibility
@@ -55,18 +64,33 @@ class ScanSession
     # The QR code is scanned by a phone, which cannot reach "localhost".
     @base_url = base_url.presence || Rails.configuration.x.app_url
     @jti = jti
+    @purpose = purpose
+    @preset = preset
   end
+
+  def for_record? = purpose == "record"
 
   # The desktop cannot see what the phone did, so the phone leaves a receipt and
   # the desktop polls for it. Redis rather than a table: short-lived scratch
   # state that should expire along with the token.
-  def record_upload(files)
+  # @param files [Array] vault files the phone stored, for a "files" scan
+  # @param pages [Array<Hash>, nil] photographs waiting to be trimmed, for a
+  #   "record" scan — nothing is filed until the computer has been through them
+  # @param chose [String, nil] the preset the phone picked, which the desktop
+  #   needs in order to open the right form
+  def record_upload(files: [], pages: nil, chose: nil)
     return if @jti.blank?
+
+    chosen = DocumentPresets[chose.presence || preset]
 
     payload = {
       completed_at: Time.current.iso8601,
-      files: files.map { |f| { id: f.id, name: f.name, size: f.size } }
-    }
+      purpose: purpose,
+      preset: chosen&.key,
+      record_type: chosen&.record_type,
+      files: files.map { |f| { id: f.id, name: f.name, size: f.size } },
+      pages: pages
+    }.compact
 
     # to_i: the Redis client rejects an ActiveSupport::Duration.
     Sidekiq.redis { |redis| redis.set(receipt_key, payload.to_json, ex: RECEIPT_TTL.to_i) }
@@ -115,7 +139,9 @@ class ScanSession
       expires_at: expires_at,
       expires_in_minutes: ((expires_at - Time.current) / 60).round,
       folder_id: folder_id,
-      visibility: visibility
+      visibility: visibility,
+      purpose: purpose,
+      preset: preset
     }
   end
 end

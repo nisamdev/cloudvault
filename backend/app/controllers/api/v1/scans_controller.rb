@@ -27,11 +27,19 @@ module Api
                               code: "forbidden", status: :forbidden)
         end
 
+        purpose = params[:purpose] == "record" ? "record" : "files"
+        if purpose == "record" && params[:preset].present? && !DocumentPresets.exists?(params[:preset])
+          return render_error(message: "Pick what kind of document this is.",
+                              code: "unknown_preset", status: :unprocessable_content)
+        end
+
         session = ScanSession.create(
           user: current_user,
           folder_id: folder&.id,
           visibility: visibility,
-          base_url: frontend_origin
+          base_url: frontend_origin,
+          purpose: purpose,
+          preset: params[:preset].presence
         )
 
         render json: session.to_h.merge(qr_svg: session.qr_svg), status: :created
@@ -41,6 +49,11 @@ module Api
       def show
         render json: {
           valid: true,
+          purpose: @session.purpose,
+          preset: @session.preset,
+          # The phone offers these when it is being asked for a document rather
+          # than for pages to keep.
+          presets: @session.for_record? ? DocumentPresets::ALL.map(&:to_h) : nil,
           expires_at: @session.expires_at,
           destination: {
             folder: folder_name,
@@ -72,19 +85,25 @@ module Api
                               code: "too_many_pages", status: :unprocessable_content)
         end
 
-        scanner = DocumentScanner.new(mode: params[:style].presence || "document")
+        # A document being photographed for a record is not touched beyond what
+        # it takes to open it on a computer: the phone is the camera, and the
+        # trimming and reading happen on the desktop where they can be checked.
+        # Colour mode is that minimum — it turns the EXIF rotation into real
+        # pixels and caps the size, and changes nothing else.
+        style = @session.for_record? ? "colour" : (params[:style].presence || "document")
+        scanner = DocumentScanner.new(mode: style)
         processed = pages.map { |page| scanner.process(page.read) }
 
-        stored = if params[:mode] == "images"
-                   store_as_images(processed, pages)
-                 else
-                   store_as_pdf(processed)
-                 end
+        if @session.for_record?
+          return complete_record_scan(processed)
+        end
+
+        stored = params[:mode] == "images" ? store_as_images(processed, pages) : store_as_pdf(processed)
 
         files = Array(stored)
         # Leaves a receipt the desktop polls for, so the QR dialog knows when
         # the phone has finished.
-        @session.record_upload(files)
+        @session.record_upload(files: files)
 
         render json: {
           files: files.map { |file| { id: file.id, name: file.name, size: file.size } },
@@ -98,7 +117,31 @@ module Api
 
       private
 
+      # The photographs are held, not filed. Nothing goes in the vault until the
+      # computer has trimmed them and the PDF has been built from what the
+      # person actually approved, so these are unattached blobs with a
+      # short-lived signed id rather than files anybody has to tidy up.
+      def complete_record_scan(processed)
+        held = processed.each_with_index.map do |bytes, index|
+          blob = ActiveStorage::Blob.create_and_upload!(
+            io: StringIO.new(bytes),
+            filename: "scan-page-#{index + 1}.jpg",
+            content_type: "image/jpeg"
+          )
+
+          { id: blob.signed_id(expires_in: HOLD_TTL), name: blob.filename.to_s, size: blob.byte_size }
+        end
+
+        chose = params[:preset].presence || @session.preset
+        @session.record_upload(pages: held, chose: chose)
+
+        render json: { pages: held, page_count: held.size, preset: chose }, status: :created
+      end
+
       MAX_PAGES = 30
+      # Long enough to walk back to the computer and take your time over the
+      # crop; short enough that an intercepted id is worth nothing tomorrow.
+      HOLD_TTL = 2.hours
 
       def load_session
         @session = ScanSession.from_token(params[:token])

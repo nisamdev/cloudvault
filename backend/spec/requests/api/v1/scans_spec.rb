@@ -1,4 +1,5 @@
 require "rails_helper"
+require "vips"
 
 RSpec.describe "Api::V1::Scans" do
   let(:owner) { create(:user) }
@@ -355,5 +356,140 @@ RSpec.describe "Api::V1::Scans status polling" do
     }.to change(StoredFile, :count).by(1)
 
     expect(response).to have_http_status(:created)
+  end
+end
+
+RSpec.describe "Api::V1::Scans for a register entry" do
+  let(:user) { create(:user) }
+  let!(:family) { create(:family, owner: user) }
+
+
+  def photographed(lines)
+    markup = lines.gsub("&", "&amp;").gsub("<", "&lt;")
+    text = Vips::Image.text(markup, dpi: 200, font: "mono")
+    page = text.invert.embed(70, 70, text.width + 140, text.height + 140, extend: :white)
+
+    Rack::Test::UploadedFile.new(
+      StringIO.new(page.colourspace("srgb").write_to_buffer(".jpg", Q: 92)),
+      "image/jpeg", original_filename: "page.jpg"
+    )
+  end
+
+  let(:passport_page) do
+    photographed(
+      "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\n" \
+      "L898902C36UTO7408122F1204159ZE184226B<<<<<10"
+    )
+  end
+
+  def start(purpose: "record", preset: nil)
+    post "/api/v1/scans", params: { purpose: purpose, preset: preset }.compact,
+         headers: auth_headers_for(user), as: :json
+    json["url"].split("/scan/").last
+  end
+
+  it "tells the phone what it is being asked for, and what it may choose" do
+    token = start
+
+    get "/api/v1/scans/#{token}"
+
+    expect(json["purpose"]).to eq("record")
+    expect(json["presets"].map { |p| p["key"] }).to include("passport", "driving_licence")
+  end
+
+  it "leaves the presets out of an ordinary file scan" do
+    token = start(purpose: "files")
+
+    get "/api/v1/scans/#{token}"
+
+    expect(json["purpose"]).to eq("files")
+    expect(json["presets"]).to be_nil
+  end
+
+  # The phone is the camera and nothing more. Trimming a photograph and reading
+  # what it says are both things somebody has to look at, and the phone is the
+  # worst screen in the house to look at them on.
+  it "holds the photographs for the computer to finish" do
+    token = start
+
+    post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "passport" }
+
+    expect(response).to have_http_status(:created)
+    expect(json["pages"].size).to eq(1)
+    expect(json.dig("pages", 0, "id")).to be_present
+    expect(json).not_to have_key("suggestion")
+  end
+
+  it "files nothing in the vault, because nothing has been approved yet" do
+    token = start
+
+    expect {
+      post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "passport" }
+    }.not_to change(StoredFile, :count)
+  end
+
+  # The desktop is not connected to the phone, so it collects the result from
+  # the receipt it polls for.
+  it "leaves the pages and the kind of document on the receipt" do
+    token = start
+
+    post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "driving_licence" }
+    get "/api/v1/scans/#{token}/status", headers: auth_headers_for(user)
+
+    receipt = json["receipt"]
+    expect(receipt["purpose"]).to eq("record")
+    expect(receipt["preset"]).to eq("driving_licence")
+    # So the desktop knows which form to open before it has read anything.
+    expect(receipt["record_type"]).to eq("driving_licence")
+    expect(receipt.dig("pages", 0, "id")).to be_present
+  end
+
+  it "hands a held page back to the computer that asked for it" do
+    token = start
+    post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "passport" }
+    held = json.dig("pages", 0, "id")
+
+    get "/api/v1/document_captures/page/#{held}", headers: auth_headers_for(user)
+
+    expect(response).to have_http_status(:ok)
+    expect(response.body.bytesize).to be_positive
+  end
+
+  it "will not hand a page to somebody who is not signed in" do
+    token = start
+    post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "passport" }
+    held = json.dig("pages", 0, "id")
+
+    get "/api/v1/document_captures/page/#{held}"
+
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  # It fills a form in. Filing is somebody's decision.
+  it "creates no record of its own" do
+    token = start
+
+    expect {
+      post "/api/v1/scans/#{token}", params: { pages: [ passport_page ], preset: "passport" }
+    }.not_to change(VaultRecord, :count)
+  end
+
+  # A record scan has no "save as" choice to make: the pages are photographs on
+  # their way to becoming one PDF, and the computer decides when.
+  it "ignores the save-as mode the phone would use for files" do
+    token = start
+
+    post "/api/v1/scans/#{token}",
+         params: { pages: [ passport_page ], preset: "passport", mode: "images" }
+
+    expect(json["pages"].size).to eq(1)
+    expect(json).not_to have_key("files")
+  end
+
+  it "refuses a kind of document it has never heard of" do
+    post "/api/v1/scans", params: { purpose: "record", preset: "made up" },
+         headers: auth_headers_for(user), as: :json
+
+    expect(response).to have_http_status(:unprocessable_content)
   end
 end

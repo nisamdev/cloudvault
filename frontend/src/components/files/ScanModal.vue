@@ -6,6 +6,9 @@ import { useLibraryStore } from "@/stores/library";
 const props = defineProps({
   folderId: { type: [Number, String], default: null },
   visibility: { type: String, default: "private" },
+  // "files" keeps the pages; "record" reads the document into a register entry.
+  purpose: { type: String, default: "files" },
+  preset: { type: String, default: "" },
 });
 const emit = defineEmits(["close", "uploaded"]);
 
@@ -27,6 +30,8 @@ async function createSession() {
     const { data } = await api.post("/scans", {
       folder_id: props.folderId || undefined,
       visibility: props.visibility,
+      purpose: props.purpose,
+      preset: props.preset || undefined,
     });
     session.value = data;
     startPolling();
@@ -52,8 +57,9 @@ function startPolling() {
       if (data.receipt) {
         received.value = data.receipt;
         stopPolling();
-        // Tell the list to refresh so the scan is actually visible behind us.
-        emit("uploaded", data.receipt);
+        // The token goes with the receipt: whatever the phone left is fetched
+        // against it, and the desktop is the only other holder.
+        emit("uploaded", { ...data.receipt, token });
       } else if (data.expired) {
         stopPolling();
         error.value = "This link has expired. Close and start a new scan.";
@@ -140,7 +146,7 @@ onBeforeUnmount(() => {
           <i class="fas fa-circle-check text-5xl text-success-500" aria-hidden="true"></i>
           <h3 class="mt-4 text-h3 font-semibold text-gray-800">Scan received</h3>
           <ul class="mt-3 space-y-1">
-            <li v-for="file in received.files" :key="file.id" class="text-body text-gray-600">
+            <li v-for="file in received.files ?? []" :key="file.id" class="text-body text-gray-600">
               {{ file.name }}
             </li>
           </ul>
