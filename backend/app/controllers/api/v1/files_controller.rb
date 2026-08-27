@@ -3,13 +3,32 @@
 module Api
   module V1
     class FilesController < BaseController
-      before_action :set_file, only: %i[show update destroy download restore preview purge pages sign]
+      include ZipKit::RailsStreaming
+
+      # Browser navigations cannot send Authorization; the ZIP URL carries its
+      # own short-lived token, same pattern as folder downloads.
+      allow_unauthenticated :zip
+
+      before_action :set_file,
+                    only: %i[show update destroy download restore preview purge pages rearrange
+                             text split content sign lock unlock reprocess]
+      before_action :set_zip_download, only: %i[zip]
 
       # GET /api/v1/files
       # Params: folder_id, file_type (file|image), trashed, q, page, per_page
       def index
-        scope = visible_files
-        scope = params[:trashed] == "true" ? scope.trashed : scope.active
+        # Two separate places, not one list with a filter on it: `locked=true`
+        # is the private section, everything else is the rest of the vault.
+        # Trash is the exception: the owner's private deletions must still show
+        # up there, or Empty trash can never reclaim them.
+        scope =
+          if params[:trashed] == "true"
+            trash_scope(visible_files)
+          elsif params[:locked] == "true"
+            only_locked(visible_files).active
+          else
+            hide_locked(visible_files).active
+          end
         scope = scope.where(file_type: params[:file_type]) if StoredFile::FILE_TYPES.include?(params[:file_type])
         # folder_id=<id> scopes to that folder; folder_id= (blank) means the root.
         # Omitting the parameter searches across all folders, which is what a
@@ -83,9 +102,25 @@ module Api
                                 .first
         replaces = existing if existing && PermissionChecker.can_edit?(current_user, existing)
 
+        # A file put into a private folder has to arrive encrypted, not be
+        # encrypted a moment later — there must be no window where the bytes are
+        # sitting in storage in the open.
+        if folder&.locked? && !vault_unlocked?
+          return render_error(message: "The private section is locked.",
+                              code: "vault_locked", status: :forbidden)
+        end
+
         stored_file = FileUploader
           .new(user: current_user, family: current_family)
-          .call(upload, folder: folder, visibility: visibility, replaces: replaces)
+          .call(
+            upload,
+            folder: folder,
+            visibility: visibility,
+            replaces: replaces,
+            last_modified: params[:last_modified]
+          )
+
+        lock_into_vault(stored_file) if folder&.locked?
 
         render json: { file: serialize(stored_file, detailed: true) },
                status: replaces ? :ok : :created
@@ -106,6 +141,26 @@ module Api
         # the family vault and shifts the storage accounting with it.
         visibility = attrs.delete("visibility")
 
+        # Neither is file_type. It normally follows the mime type, which files
+        # every JPEG under Photos — including photographs *of documents*. Saying
+        # otherwise is a decision, so it is recorded as one.
+        if attrs.key?("file_type")
+          chosen = attrs.delete("file_type")
+
+          unless StoredFile::FILE_TYPES.include?(chosen)
+            return render_error(message: "A file is either a document or a photo.",
+                                code: "invalid_file_type", status: :unprocessable_content)
+          end
+
+          if chosen == "image" && !@file.picture?
+            return render_error(message: "#{@file.name} isn't a picture, so it can't live in Photos.",
+                                code: "not_a_picture", status: :unprocessable_content)
+          end
+
+          attrs["file_type"] = chosen
+          attrs["file_type_pinned"] = true
+        end
+
         # A move must land somewhere the caller can reach. Blank means the root.
         if attrs.key?("folder_id") && attrs["folder_id"].present?
           target = find_folder(attrs["folder_id"])
@@ -124,7 +179,17 @@ module Api
           assign_labels! if params.key?(:label_ids)
         end
 
-        render json: { file: serialize(@file, detailed: true) }
+        # Crossing the boundary of the private section is the one move that
+        # changes the bytes as well as the row.
+        follow_folder_lock or return
+
+        # Filing a picture back into Photos should still produce a thumbnail if
+        # the original upload never got one (or the job ran while it was a doc).
+        if @file.picture? && !@file.thumbnail.attached?
+          ProcessImageJob.perform_later(@file.id)
+        end
+
+        render json: { file: serialize(@file.reload, detailed: true) }
       rescue FileVisibilityUpdater::Forbidden => e
         render_error(message: e.message, code: "forbidden", status: :forbidden)
       rescue FileVisibilityUpdater::QuotaExceeded => e
@@ -169,10 +234,122 @@ module Api
         head :no_content
       end
 
+      # POST /api/v1/files/:id/lock — move one file into the private section
+      #
+      # Folders are locked as a tree; a lone file still needs a locked folder to
+      # live in. Prefer an explicit folder_id from the picker; otherwise land in
+      # the dedicated "Private" catch-all (never a random locked folder).
+      def lock
+        return unless require_vault!
+        authorize!(:edit) or return
+
+        return render json: { file: serialize(@file) } if @file.locked?
+
+        destination = private_destination_folder(params[:folder_id])
+        return if performed?
+
+        StoredFile.transaction do
+          @file.update!(folder_id: destination.id)
+          lock_into_vault(@file)
+        end
+
+        render json: { file: serialize(@file.reload) }
+      rescue VaultCipher::WrongKey, VaultStorage::TooLarge => e
+        render_error(message: e.message.presence || "That file could not be moved.",
+                     code: "lock_failed", status: :unprocessable_content)
+      end
+
+      # DELETE /api/v1/files/:id/lock — bring one file back out
+      def unlock
+        return unless require_vault!
+        authorize!(:edit) or return
+
+        return render json: { file: serialize(@file) } unless @file.locked?
+
+        VaultStorage.decrypt!(@file, :attachment, vault_key)
+        VaultStorage.decrypt!(@file, :thumbnail, vault_key)
+        # Back to the root of My Files / Photos — its private folder may still
+        # hold other things, and leaving it there would re-encrypt on the next
+        # listing refresh via follow_folder_lock.
+        @file.update!(locked: false, encrypted: false, folder_id: nil)
+        ensure_thumbnail!(@file)
+
+        render json: { file: serialize(@file.reload) }
+      rescue VaultCipher::WrongKey, VaultStorage::TooLarge => e
+        render_error(message: e.message.presence || "That file could not be moved.",
+                     code: "unlock_failed", status: :unprocessable_content)
+      end
+
+      # POST /api/v1/files/:id/reprocess — rebuild a missing gallery thumbnail
+      def reprocess
+        authorize!(:edit) or return
+
+        unless @file.picture?
+          return render_error(message: "Only pictures have thumbnails.",
+                              code: "not_a_picture", status: :unprocessable_content)
+        end
+
+        ProcessImageJob.perform_later(@file.id, force: true)
+        render json: { queued: true }
+      end
+
+      # POST /api/v1/files/zip_url — multi-select download as one ZIP
+      def zip_url
+        ids = Array(params[:file_ids]).map(&:to_s).uniq.first(FilesArchiver::MAX_ENTRIES)
+        if ids.empty?
+          return render_error(message: "Pick at least one file to download.",
+                              code: "empty_selection", status: :unprocessable_content)
+        end
+
+        files = hide_locked(visible_files.active).where(id: ids).includes(attachment_attachment: :blob)
+        archiver = FilesArchiver.new(files: files, user: current_user)
+
+        if archiver.entries.empty?
+          return render_error(message: "None of those files can be downloaded.",
+                              code: "nothing_to_download", status: :unprocessable_content)
+        end
+
+        token = JwtService.encode_download(
+          user_id: current_user.id,
+          scope: "files:zip",
+          file_ids: archiver.entries.map { |e| e.stored_file.id }
+        )
+
+        render json: {
+          url: "#{Rails.configuration.x.api_url}/api/v1/files/zip?token=#{CGI.escape(token)}",
+          filename: archiver.filename,
+          file_count: archiver.entries.size,
+          total_size: archiver.total_size
+        }
+      end
+
+      # GET /api/v1/files/zip?token=...
+      def zip
+        zip_kit_stream(filename: @zip_archiver.filename) do |zip|
+          @zip_archiver.entries.each do |entry|
+            file = entry.stored_file
+            next unless file.attachment.attached?
+
+            writer = zip_precompressed?(file) ? :write_stored_file : :write_deflated_file
+            zip.public_send(writer, entry.path) do |sink|
+              file.attachment.blob.download { |chunk| sink << chunk }
+            end
+          rescue StandardError => e
+            Rails.logger.error("[files-zip] #{file.id}: #{e.class}: #{e.message}")
+          end
+        end
+      end
+
       # GET /api/v1/files/:id/download
       def download
         unless @file.attachment.attached?
           return render_error(message: "That file has no contents.", code: "not_found", status: :not_found)
+        end
+
+        # A locked file has no URL anybody else could follow: its bytes are
+        # ciphertext, and only this process holds the key.
+        if @file.encrypted?
+          return render json: { via: "api", url: nil, filename: @file.name }
         end
 
         @file.update_column(:last_accessed_at, Time.current)
@@ -205,6 +382,11 @@ module Api
       # returned in the body instead: reading it with fetch() would need CORS
       # configured on the storage bucket, which is one more thing to get wrong
       # in every environment.
+      #
+      # via=proxy asks for a URL on our own origin instead. Showing an image
+      # needs no such thing, but *reading its pixels back* does: a canvas that
+      # has drawn a cross-origin image is tainted, and the scanner has to read
+      # the pixels to crop and enhance them.
       def preview
         unless @file.attachment.attached?
           return render json: { kind: "none", reason: "empty" }
@@ -213,6 +395,15 @@ module Api
         kind = preview_kind(@file)
 
         payload = { kind: kind, name: @file.name, mime_type: @file.mime_type, size: @file.size }
+
+        # Same again: no URL, because there is nothing anybody else could fetch.
+        # The SPA reads /content with the unlock token and makes its own.
+        if @file.encrypted?
+          payload[:via] = "api"
+          payload[:width] = @file.image_width if kind == "image"
+          payload[:height] = @file.image_height if kind == "image"
+          return render json: payload
+        end
 
         case kind
         when "text"
@@ -225,7 +416,12 @@ module Api
               # No browser but Safari renders HEIC, so hand back a JPEG rendition
               # instead of the original. Active Storage keeps the processed
               # variant, so this cost is paid once per photo.
-              converted_preview_url(@file)
+              converted_preview_url(@file, proxy: same_origin_bytes?)
+            elsif same_origin_bytes?
+              StorageUrl.proxy_url(
+                @file.attachment.blob,
+                expires_in: 15.minutes, disposition: "inline", filename: @file.name
+              )
             else
               StorageUrl.for(@file.attachment, expires_in: 15.minutes, disposition: "inline")
             end
@@ -241,18 +437,30 @@ module Api
       end
 
       # GET /api/v1/files/:id/pages
-      # Page images for the signing UI, so the browser needs no PDF renderer.
+      #
+      # Page images, so the browser needs no PDF renderer. The signing editor
+      # wants them big enough to place a signature on; the page arranger wants
+      # thumbnails, and wants them for a whole document rather than the first
+      # screenful — hence `size` and `from`.
       def pages
         unless pdf?(@file)
           return render_error(message: "That file is not a PDF.",
                               code: "not_a_pdf", status: :unprocessable_content)
         end
 
-        renderer = PdfPageRenderer.new(@file.attachment.download)
+        thumbnails = params[:size] == "thumb"
+        renderer = PdfPageRenderer.new(
+          @file.attachment.download,
+          width: thumbnails ? PdfPageRenderer::THUMB_WIDTH : PdfPageRenderer::RENDER_WIDTH
+        )
+        rendered = renderer.pages(
+          limit: thumbnails ? PdfPageRenderer::MAX_THUMBS : PdfPageRenderer::MAX_PAGES,
+          from: params[:from].presence || 1
+        )
 
         render json: {
           page_count: renderer.page_count,
-          pages: renderer.pages.map do |page|
+          pages: rendered.map do |page|
             {
               number: page[:number],
               width: page[:width],
@@ -263,6 +471,158 @@ module Api
             }
           end
         }
+      end
+
+      # POST /api/v1/files/:id/split
+      #
+      # Pulls a run of pages out as a document of its own.
+      #
+      # Unlike rearranging, this writes a *new* file and leaves the original
+      # exactly as it was: taking one statement out of a year of them is not an
+      # edit to the year.
+      def split
+        authorize!(:edit) or return
+
+        unless pdf?(@file)
+          return render_error(message: "That file is not a PDF.",
+                              code: "not_a_pdf", status: :unprocessable_content)
+        end
+
+        original = @file.attachment.download
+        numbers = (params[:from].to_i..params[:to].to_i).to_a
+
+        if numbers.empty?
+          return render_error(message: "The last page has to come after the first.",
+                              code: "empty_range", status: :unprocessable_content)
+        end
+
+        bytes = PdfPageArranger.new(original).call(numbers.map { |n| { number: n, rotation: 0 } })
+
+        stored = FileUploader
+                 .new(user: current_user, family: current_family)
+                 .call(pdf_upload(bytes, split_name(numbers)),
+                       folder: @file.folder, visibility: "private")
+
+        render json: { file: serialize(stored, detailed: true) }, status: :created
+      rescue PdfPageArranger::Error => e
+        render_error(message: e.message, code: "split_failed", status: :unprocessable_content)
+      rescue FileUploader::QuotaExceeded => e
+        render_error(message: e.message, code: "quota_exceeded", status: :content_too_large)
+      end
+
+      # GET /api/v1/files/:id/content
+      #
+      # The file itself, through the API rather than from object storage.
+      #
+      # This is how a locked file is read: its bytes in storage are ciphertext,
+      # so only this process can turn them back into a document, and only while
+      # the private section is open. The unlock token travels in a header and
+      # never in the URL — which is why the SPA fetches this and makes a blob URL
+      # rather than pointing the browser at it.
+      def content
+        unless @file.attachment.attached?
+          return render_error(message: "That file has no contents.", code: "not_found", status: :not_found)
+        end
+
+        bytes =
+          if @file.encrypted?
+            return unless require_vault!
+
+            begin
+              VaultStorage.read(@file.attachment, vault_key)
+            rescue VaultCipher::WrongKey
+              return render_error(message: "That file could not be opened.",
+                                  code: "vault_locked", status: :forbidden)
+            end
+          else
+            @file.attachment.download
+          end
+
+        @file.update_column(:last_accessed_at, Time.current)
+
+        send_data bytes,
+                  type: @file.mime_type,
+                  disposition: params[:disposition] == "attachment" ? "attachment" : "inline",
+                  filename: @file.name
+      end
+
+      # GET /api/v1/files/:id/text
+      #
+      # The text inside a PDF, and the handful of things in it worth reading.
+      #
+      # A PDF built from photographs has no text layer. When that happens we
+      # fall back to OCR (tesseract) so a scan is still readable. `source`
+      # tells the SPA which path produced the words.
+      def text
+        unless pdf?(@file)
+          return render_error(message: "That file is not a PDF.",
+                              code: "not_a_pdf", status: :unprocessable_content)
+        end
+
+        bytes = @file.attachment.download
+        extracted = PdfTextExtractor.new(bytes).call
+        source = "text_layer"
+
+        unless extracted.any_text?
+          ocr = PdfOcr.new(bytes).call
+          if ocr.any_text?
+            extracted = ocr
+            source = "ocr"
+          else
+            source = "none"
+          end
+        end
+
+        details = KeyDetails.new(extracted.pages).call
+
+        render json: {
+          has_text: extracted.any_text?,
+          source: source,
+          page_count: extracted.page_count,
+          truncated: extracted.truncated,
+          title: details[:title],
+          details: details[:details],
+          found: details[:found],
+          lines: details[:lines],
+          pages: extracted.pages
+        }
+      end
+
+      # PATCH /api/v1/files/:id/pages
+      #
+      # Reorders, turns and drops pages. The result replaces the file as a new
+      # version rather than becoming a second file: this is an edit to a
+      # document, and the one thing that must not happen is losing the original.
+      def rearrange
+        authorize!(:edit) or return
+
+        unless pdf?(@file)
+          return render_error(message: "That file is not a PDF.",
+                              code: "not_a_pdf", status: :unprocessable_content)
+        end
+
+        layout = Array(params[:pages]).map do |page|
+          { number: page[:number].to_i, rotation: page[:rotation].to_i }
+        end
+
+        original = @file.attachment.download
+
+        if unchanged?(layout, original)
+          return render_error(message: "Nothing about the pages has changed.",
+                              code: "no_changes", status: :unprocessable_content)
+        end
+
+        bytes = PdfPageArranger.new(original).call(layout)
+
+        FileUploader
+          .new(user: current_user, family: current_family)
+          .call(pdf_upload(bytes, @file.name), replaces: @file)
+
+        render json: { file: serialize(@file.reload, detailed: true) }
+      rescue PdfPageArranger::Error => e
+        render_error(message: e.message, code: "rearrange_failed", status: :unprocessable_content)
+      rescue FileUploader::QuotaExceeded => e
+        render_error(message: e.message, code: "quota_exceeded", status: :content_too_large)
       end
 
       # POST /api/v1/files/:id/sign
@@ -297,7 +657,7 @@ module Api
 
         FileUploader
           .new(user: current_user, family: current_family)
-          .call(signed_upload(stamped, @file.name), replaces: @file)
+          .call(pdf_upload(stamped, @file.name), replaces: @file)
 
         render json: { file: serialize(@file.reload, detailed: true) }
       rescue PdfFieldStamper::Error => e
@@ -357,8 +717,109 @@ module Api
         end
       end
 
-      # The signed PDF is built in memory; FileUploader expects an upload.
-      def signed_upload(bytes, filename)
+      # A document is unchanged when every page is still there, still in order
+      # and still the way up it started. Rebuilding it anyway would spend a
+      # version and a copy of the bytes to produce the same file.
+      def unchanged?(layout, bytes)
+        layout.each_with_index.all? { |page, index| page[:number] == index + 1 && page[:rotation].zero? } &&
+          layout.size == PdfPageRenderer.new(bytes).page_count
+      end
+
+      # Encrypts a file that has just landed in a private folder, and its
+      # thumbnail with it — a thumbnail of a passport is still a passport.
+      def lock_into_vault(file)
+        # Thumbnails must exist before the bytes are sealed: ProcessImageJob
+        # cannot resize ciphertext, and preview-via-decrypt cannot help <img>.
+        ensure_thumbnail!(file)
+        VaultStorage.encrypt!(file, :attachment, vault_key)
+        VaultStorage.encrypt!(file, :thumbnail, vault_key)
+        file.update!(locked: true, encrypted: true)
+      end
+
+      def ensure_thumbnail!(file)
+        return unless file.picture?
+        return if file.thumbnail.attached?
+
+        ProcessImageJob.perform_now(file.id)
+        file.reload
+      end
+
+      # A locked folder the caller picked, or the dedicated "Private" catch-all.
+      # Never "whichever locked folder was created first" — that made newly
+      # created private folders silently become the dump target.
+      def private_destination_folder(folder_id)
+        if folder_id.present?
+          folder = Folder.active.find_by(id: folder_id, user_id: current_user.id, locked: true)
+          unless folder
+            render_error(message: "We couldn't find that private folder.",
+                         code: "folder_not_found", status: :not_found)
+            return nil
+          end
+          return folder
+        end
+
+        catch_all_private_folder
+      end
+
+      # Dedicated inbox for one-off locks when the SPA did not pick a folder.
+      # Always the folder named "Private", creating it if needed — not the
+      # oldest/newest locked folder the user happens to have.
+      def catch_all_private_folder
+        existing = Folder.active.find_by(user_id: current_user.id, locked: true, name: "Private")
+        return existing if existing
+
+        Folder.create!(user: current_user, name: unused_private_folder_name, locked: true)
+      end
+
+      def unused_private_folder_name
+        scope = Folder.active.where(user_id: current_user.id, parent_id: nil, family_id: nil)
+        base = "Private"
+        return base unless scope.exists?([ "LOWER(name) = ?", base.downcase ])
+
+        n = 2
+        n += 1 while scope.exists?([ "LOWER(name) = ?", "private #{n}" ])
+        "Private #{n}"
+      end
+
+      # After a move, the file has to match the folder it is now in. Going in
+      # encrypts it; coming out decrypts it; staying on the same side is free.
+      def follow_folder_lock
+        should_be_locked = @file.folder&.locked? || false
+        return true if should_be_locked == @file.encrypted?
+
+        unless vault_unlocked?
+          render_error(message: "Unlock the private section before moving files in or out of it.",
+                       code: "vault_locked", status: :forbidden)
+          return false
+        end
+
+        if should_be_locked
+          lock_into_vault(@file)
+        else
+          VaultStorage.decrypt!(@file, :attachment, vault_key)
+          VaultStorage.decrypt!(@file, :thumbnail, vault_key)
+          @file.update!(locked: false, encrypted: false)
+          ensure_thumbnail!(@file)
+        end
+
+        true
+      rescue VaultCipher::WrongKey, VaultStorage::TooLarge => e
+        render_error(message: e.message.presence || "That file could not be moved.",
+                     code: "vault_move_failed", status: :unprocessable_content)
+        false
+      end
+
+      # Named after where the pages came from, so a folder full of these still
+      # says which is which.
+      def split_name(numbers)
+        base = File.basename(@file.name, ".*")
+        span = numbers.size == 1 ? "page #{numbers.first}" : "pages #{numbers.first}-#{numbers.last}"
+
+        "#{base} (#{span}).pdf"
+      end
+
+      # A PDF built in memory; FileUploader expects an upload.
+      def pdf_upload(bytes, filename)
         tempfile = Tempfile.new([ "signed", ".pdf" ], binmode: true)
         tempfile.write(bytes)
         tempfile.rewind
@@ -382,17 +843,26 @@ module Api
 
       # Renders the photo to JPEG once and serves that. Falls back to the
       # original if conversion fails, so the client still gets something.
-      def converted_preview_url(file)
+      def converted_preview_url(file, proxy: false)
         variant = file.attachment.variant(
           resize_to_limit: PREVIEW_LIMIT,
           format: :jpeg,
           saver: { quality: 85 }
         ).processed
 
-        StorageUrl.for_blob(variant.image.blob, expires_in: 15.minutes, disposition: "inline")
+        blob = variant.image.blob
+        if proxy
+          StorageUrl.proxy_url(blob, expires_in: 15.minutes, disposition: "inline", filename: file.name)
+        else
+          StorageUrl.for_blob(blob, expires_in: 15.minutes, disposition: "inline")
+        end
       rescue StandardError => e
         Rails.logger.error("[preview] conversion failed for #{file.id}: #{e.class}: #{e.message}")
         StorageUrl.for(file.attachment, expires_in: 15.minutes, disposition: "inline")
+      end
+
+      def same_origin_bytes?
+        params[:via] == "proxy"
       end
 
       TEXT_MIME_TYPES = %w[
@@ -416,11 +886,56 @@ module Api
       def set_file
         @file = StoredFile.find(params[:id])
 
+        # A locked file does not exist until the private section is open. 404
+        # rather than 403 for the same reason as everywhere else here: the
+        # answer must not confirm that there is something to find.
+        #
+        # Exception: the owner can restore or permanently delete their own
+        # private trash without unlocking — those paths never read plaintext.
+        if @file.locked? && !vault_unlocked?
+          trash_housekeeping = @file.trashed? &&
+            @file.user_id == current_user.id &&
+            %w[restore purge].include?(action_name)
+
+          unless trash_housekeeping
+            return render_error(message: "We couldn't find what you were looking for.",
+                                code: "not_found", status: :not_found)
+          end
+        end
+
         return if PermissionChecker.can_view?(current_user, @file)
 
         # 404 rather than 403: a file you cannot see should not be confirmed to exist.
         render_error(message: "We couldn't find what you were looking for.",
                      code: "not_found", status: :not_found)
+      end
+
+      def set_zip_download
+        payload = JwtService.decode_download(params[:token], expected_scope: "files:zip")
+        user = User.find_by(id: payload["sub"])
+        raise JwtService::InvalidToken, "unknown user" if user.nil?
+
+        ids = Array(payload["file_ids"]).map(&:to_i)
+        files = StoredFile.active.where(id: ids, locked: false)
+                          .includes(attachment_attachment: :blob)
+                          .select { |file| PermissionChecker.can_view?(user, file) }
+
+        @zip_archiver = FilesArchiver.new(files: files, user: user)
+        if @zip_archiver.entries.empty?
+          return render_error(message: "None of those files can be downloaded.",
+                              code: "nothing_to_download", status: :unprocessable_content)
+        end
+      rescue JwtService::InvalidToken
+        render_error(message: "This download link has expired.",
+                     code: "invalid_download_token", status: :unauthorized)
+      end
+
+      ZIP_PRECOMPRESSED_TYPES = %w[image/ video/ audio/].freeze
+      ZIP_PRECOMPRESSED_EXACT = %w[application/zip application/gzip application/pdf].freeze
+
+      def zip_precompressed?(file)
+        mime = file.mime_type.to_s
+        ZIP_PRECOMPRESSED_EXACT.include?(mime) || ZIP_PRECOMPRESSED_TYPES.any? { |p| mime.start_with?(p) }
       end
 
       def authorize!(action)
@@ -461,6 +976,16 @@ module Api
 
         mine.or(StoredFile.where(id: granted.file_ids))
             .or(StoredFile.where(folder_id: granted.folder_ids))
+      end
+
+      # Ordinary trash + the owner's own private deletions. Ciphertext can be
+      # listed and purged without the passphrase; other people's locked files
+      # stay invisible.
+      def trash_scope(files)
+        base = files.trashed
+        open = hide_locked(base)
+        mine_private = base.where(user_id: current_user.id, locked: true)
+        open.or(mine_private)
       end
 
       # Resolves a folder the caller is actually allowed to put files in.
@@ -541,7 +1066,7 @@ module Api
         # Accepts either a flat body ({ "visibility": "family" }) or a nested
         # one under file_attributes.
         source = params[:file_attributes].presence || params
-        source.permit(:name, :visibility, :folder_id)
+        source.permit(:name, :visibility, :folder_id, :file_type)
       end
 
       # Resolves date_from/date_to into a time range in the viewer's timezone.
@@ -581,6 +1106,7 @@ module Api
           visibility: file.visibility,
           folder_id: file.folder_id,
           version_number: file.version_number,
+          locked: file.locked?,
           trashed_at: file.trashed_at,
           purge_after: file.purge_after,
           created_at: file.created_at,
@@ -596,7 +1122,9 @@ module Api
           }
         }
 
-        if file.image?
+        # `picture?`, not `image?`: a certificate filed under My Files is still a
+        # JPEG, and its row should still show what it looks like.
+        if file.picture?
           payload[:image] = {
             width: file.image_width,
             height: file.image_height,
@@ -609,6 +1137,9 @@ module Api
           # What the gallery groups and sorts by.
           payload[:captured_at] = file.captured_at
         end
+
+        # Only worth saying for a picture, where the two can differ.
+        payload[:filed_as_document] = file.picture? && !file.image?
 
         payload[:download_url] = "#{Rails.configuration.x.api_url}/api/v1/files/#{file.id}/download" if detailed
         payload

@@ -16,7 +16,11 @@ module Api
       # Returns the whole tree in one call — a family vault is small enough that
       # this beats a request per level, and the sidebar needs all of it anyway.
       def index
-        folders = visible_folders.active.order(:name)
+        # The private section is asked for by name; the ordinary tree never
+        # contains it, open or not.
+        scope = visible_folders.active
+        scope = params[:locked] == "true" ? only_locked(scope) : hide_locked(scope)
+        folders = scope.order(:name)
 
         render json: {
           folders: folders.map { |folder| serialize(folder) },
@@ -45,7 +49,19 @@ module Api
         authorize_parent!(folder.parent) or return
 
         folder.save!
-        render json: { folder: serialize(folder) }, status: :created
+        inherit_lock(folder)
+
+        # A folder created from the private section with no locked parent still
+        # needs to be sealed — inherit_lock only covers "made inside one".
+        if ActiveModel::Type::Boolean.new.cast(params[:locked])
+          unless vault_unlocked?
+            return render_error(message: "Unlock the private section before creating a private folder.",
+                                code: "vault_locked", status: :forbidden)
+          end
+          folder.update_columns(locked: true, updated_at: Time.current) unless folder.locked?
+        end
+
+        render json: { folder: serialize(folder.reload) }, status: :created
       end
 
       # PATCH /api/v1/folders/:id  — rename, or move to another parent
@@ -58,6 +74,11 @@ module Api
         end
 
         @folder.update!(attrs)
+
+        # Dragging a folder under a private one must seal it the same way a
+        # brand-new child would be.
+        inherit_lock(@folder.reload) if attrs.key?(:parent_id)
+
         render json: { folder: serialize(@folder) }
       end
 
@@ -159,6 +180,59 @@ module Api
         end
       end
 
+      # POST /api/v1/folders/:id/lock — move it into the private section
+      #
+      # Everything inside is encrypted, including anything in folders below it:
+      # a folder inside a private folder is private, and nobody would expect
+      # otherwise.
+      #
+      # Optional folder_id nests it under an existing private folder. Blank
+      # parent (folder_id="") puts it at the top of Private.
+      def lock
+        return unless require_vault!
+
+        folder = hide_locked(visible_folders.active).find_by(id: params[:id])
+        return render_error(message: "We couldn't find that folder.", code: "not_found", status: :not_found) if folder.nil?
+
+        if params.key?(:folder_id)
+          if params[:folder_id].present?
+            parent = Folder.active.find_by(id: params[:folder_id], user_id: current_user.id, locked: true)
+            unless parent
+              return render_error(message: "We couldn't find that private folder.",
+                                  code: "folder_not_found", status: :not_found)
+            end
+            # Cannot nest a folder under itself or its own descendant.
+            if parent.id == folder.id || descendant_ids(folder).include?(parent.id)
+              return render_error(message: "That folder cannot go inside itself.",
+                                  code: "invalid_parent", status: :unprocessable_content)
+            end
+            folder.update!(parent_id: parent.id)
+          else
+            folder.update!(parent_id: nil)
+          end
+        end
+
+        result = FolderLocker.new(folder, vault_key).lock!
+
+        render json: { folder: serialize(folder.reload), files: result.files, folders: result.folders }
+      rescue FolderLocker::Error => e
+        render_error(message: e.message, code: "lock_failed", status: :unprocessable_content)
+      end
+
+      # DELETE /api/v1/folders/:id/lock — bring it back out
+      def unlock
+        return unless require_vault!
+
+        folder = visible_folders.active.where(locked: true).find_by(id: params[:id])
+        return render_error(message: "We couldn't find that folder.", code: "not_found", status: :not_found) if folder.nil?
+
+        result = FolderLocker.new(folder, vault_key).unlock!
+
+        render json: { folder: serialize(folder.reload), files: result.files, folders: result.folders }
+      rescue FolderLocker::Error => e
+        render_error(message: e.message, code: "unlock_failed", status: :unprocessable_content)
+      end
+
       private
 
       def retention_days
@@ -198,7 +272,8 @@ module Api
       end
 
       def set_folder
-        @folder = visible_folders.find_by(id: params[:id])
+        scope = vault_unlocked? ? visible_folders : hide_locked(visible_folders)
+        @folder = scope.find_by(id: params[:id])
 
         return if @folder
 
@@ -246,12 +321,22 @@ module Api
         params.require(:folder).permit(:name, :parent_id, :family)
       end
 
+      # A folder made inside a private one is private from the moment it exists,
+      # so nothing is ever briefly in the open.
+      def inherit_lock(folder)
+        parent = folder.parent
+        return unless parent&.locked?
+
+        folder.update_columns(locked: true, updated_at: Time.current)
+      end
+
       def serialize(folder)
         {
           id: folder.id,
           name: folder.name,
           parent_id: folder.parent_id,
           shared: folder.family_id.present?,
+          locked: folder.locked?,
           file_count: StoredFile.where(folder_id: folder.id, trashed_at: nil).count,
           created_at: folder.created_at
         }

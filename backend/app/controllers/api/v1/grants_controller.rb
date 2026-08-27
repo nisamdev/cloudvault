@@ -17,6 +17,15 @@ module Api
 
       # POST /api/v1/files/:file_id/grants
       def create
+        # Sharing with a person means they can read it, and they have no way to:
+        # only the owner's passphrase opens the private section.
+        if @resource.respond_to?(:locked?) && @resource.locked?
+          return render_error(
+            message: "That is in your private section. Take it out before sharing it with anyone.",
+            code: "resource_locked", status: :unprocessable_content
+          )
+        end
+
         subject = resolve_subject
         return if performed?
 

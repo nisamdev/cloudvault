@@ -17,7 +17,8 @@ ENV LANG=C.UTF-8 \
     BUNDLE_RETRY=3 \
     RAILS_LOG_TO_STDOUT=true
 
-# libvips = image_processing (thumbnails); libpq5 = pg; postgresql-client = pg_isready
+# libvips = image_processing (thumbnails) + PDF page renders; libpq5 = pg;
+# tesseract = OCR for scanned PDFs that have no text layer
 RUN apt-get update -qq \
  && apt-get install --no-install-recommends -y \
       curl \
@@ -25,6 +26,8 @@ RUN apt-get update -qq \
       libpq5 \
       libvips42 \
       postgresql-client \
+      tesseract-ocr \
+      tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/*
 
 # jemalloc keeps Ruby's RSS down — matters on Railway's per-GB pricing.

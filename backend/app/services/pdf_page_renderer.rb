@@ -9,8 +9,14 @@ class PdfPageRenderer
   RENDER_WIDTH = 900
   MAX_PAGES = 20
 
-  def initialize(pdf_bytes)
+  # Rearranging pages only needs to show which page is which, so they come back
+  # small enough that a long document can be sent a batch at a time.
+  THUMB_WIDTH = 260
+  MAX_THUMBS = 24
+
+  def initialize(pdf_bytes, width: RENDER_WIDTH)
     @pdf_bytes = pdf_bytes
+    @width = width
   end
 
   def page_count
@@ -22,11 +28,16 @@ class PdfPageRenderer
     end
   end
 
+  # @param from [Integer] first page to render, counting from 1 — so a long
+  #   document can be fetched in batches rather than in one enormous response.
   # @return [Array<Hash>] one entry per page: number, aspect ratio, PNG bytes
-  def pages(limit: MAX_PAGES)
-    (0...[ page_count, limit ].min).map do |index|
+  def pages(limit: MAX_PAGES, from: 1)
+    first = [ from.to_i, 1 ].max - 1
+    last = [ first + limit, page_count ].min
+
+    (first...last).map do |index|
       image = Vips::Image.pdfload_buffer(@pdf_bytes, page: index, dpi: 150)
-      scaled = image.width > RENDER_WIDTH ? image.resize(RENDER_WIDTH.to_f / image.width) : image
+      scaled = image.width > @width ? image.resize(@width.to_f / image.width) : image
 
       {
         number: index + 1,

@@ -41,7 +41,7 @@ class JwtService
     # One-off token for a browser navigation that cannot carry an Authorization
     # header — a folder ZIP download opened as a plain link. Scoped to a single
     # resource and short-lived, so a leaked URL is worth very little.
-    def encode_download(user_id:, scope:, expires_in: 5.minutes)
+    def encode_download(user_id:, scope:, expires_in: 5.minutes, **extra)
       now = Time.current
 
       JWT.encode(
@@ -52,7 +52,7 @@ class JwtService
           iat: now.to_i,
           exp: (now + expires_in).to_i,
           jti: SecureRandom.uuid
-        },
+        }.merge(extra),
         secret,
         ALGORITHM
       )

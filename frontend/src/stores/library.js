@@ -50,10 +50,11 @@ export const useLibraryStore = defineStore("library", () => {
     }
   }
 
-  async function createFolder({ name, parentId = null, shared = false }) {
+  async function createFolder({ name, parentId = null, shared = false, locked = false }) {
     const { data } = await api.post("/folders", {
       folder: { name, parent_id: parentId },
       shared: shared ? "true" : undefined,
+      locked: locked ? "true" : undefined,
     });
     await fetchFolders();
     return data.folder;

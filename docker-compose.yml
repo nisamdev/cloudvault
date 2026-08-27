@@ -9,7 +9,7 @@
 #
 # Host ports (see .env) are deliberately non-default so CloudVault can run
 # alongside other local stacks:
-#   web 5273 · api 3100 · postgres 5532 · redis 6479
+#   web 5273 · api 3101 · postgres 5532 · redis 6479
 #   minio 9100 (api) / 9101 (console) · mailpit 8125 (UI) / 1125 (SMTP)
 
 name: cloudvault
@@ -20,6 +20,10 @@ x-api-env: &api-env
   # image; without this Bundler warns and falls back to a temp dir on every call.
   HOME: /tmp
   DATABASE_URL: postgres://${POSTGRES_USER:-cloudvault}:${POSTGRES_PASSWORD:-cloudvault_dev_password}@postgres:5432/${POSTGRES_DB:-cloudvault_development}
+  # Stated rather than left to be inferred: running the suite has to reach a
+  # different database from the one holding your files, and `db:test:purge`
+  # drops whatever it is pointed at.
+  TEST_DATABASE_URL: postgres://${POSTGRES_USER:-cloudvault}:${POSTGRES_PASSWORD:-cloudvault_dev_password}@postgres:5432/cloudvault_test
   REDIS_URL: redis://redis:6379/0
   SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
   JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}

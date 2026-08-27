@@ -143,6 +143,16 @@ class StoredFile < ApplicationRecord
     mime_type.to_s.start_with?(IMAGE_MIME_PREFIX) ? "image" : "file"
   end
 
+  # Two different questions, and conflating them is what put scanned
+  # certificates in the photo gallery:
+  #
+  #   picture?  — are these bytes an image? A fact about the file.
+  #   image?    — does it belong in Photos rather than My Files? Its owner's
+  #               decision, which starts out as the answer to the first.
+  #
+  # So a thumbnail follows `picture?` and the two sections follow `image?`.
+  def picture? = mime_type.to_s.start_with?(IMAGE_MIME_PREFIX)
+
   def image? = file_type == "image"
   def trashed? = trashed_at.present?
 

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import api from "@/api/client";
 import { useFilesStore } from "@/stores/files";
+import { copyText } from "@/utils/clipboard";
 import { formatFileSize, fileIcon } from "@/utils/formatting";
 
 const props = defineProps({
@@ -23,13 +24,37 @@ const index = computed(() => props.files.findIndex((f) => f.id === props.file.id
 const hasPrev = computed(() => index.value > 0);
 const hasNext = computed(() => index.value >= 0 && index.value < props.files.length - 1);
 
+// Object URLs made for encrypted files, revoked when the preview moves on.
+let objectUrl = null;
+
+function releaseObjectUrl() {
+  if (!objectUrl) return;
+
+  URL.revokeObjectURL(objectUrl);
+  objectUrl = null;
+}
+
 async function load() {
   loading.value = true;
   error.value = "";
   preview.value = null;
+  releaseObjectUrl();
 
   try {
     const { data } = await api.get(`/files/${props.file.id}/preview`);
+
+    // A file in the private section has no URL: its bytes in storage are
+    // ciphertext, and the unlock token is never put in one. So the page fetches
+    // it with the token in a header and makes a URL of its own.
+    if (data.via === "api") {
+      const bytes = await api.get(`/files/${props.file.id}/content`, {
+        responseType: "blob",
+        timeout: 120_000,
+      });
+      objectUrl = URL.createObjectURL(bytes.data);
+      data.url = objectUrl;
+    }
+
     preview.value = data;
   } catch (e) {
     error.value = e.userMessage;
@@ -39,7 +64,10 @@ async function load() {
 }
 
 // Re-fetch when the arrows move to another file.
-watch(() => props.file.id, load);
+watch(() => props.file.id, () => {
+  copyState.value = "";
+  load();
+});
 
 function go(step) {
   const next = props.files[index.value + step];
@@ -62,6 +90,39 @@ function onKeydown(event) {
   }
 }
 
+/* ---------------------------------------------------- copying a PDF's text */
+
+// The browser's own PDF viewer lets you select and copy, but only what is on
+// screen and only if the PDF has a text layer. This takes the whole document in
+// one go, and says plainly when there is nothing to take.
+const copying = ref(false);
+const copyState = ref("");
+let copyTimer = null;
+
+async function copyDocumentText() {
+  if (copying.value) return;
+
+  copying.value = true;
+  copyState.value = "";
+
+  try {
+    const { data } = await api.get(`/files/${props.file.id}/text`, { timeout: 120_000 });
+
+    if (!data.has_text) {
+      copyState.value = "none";
+    } else {
+      const text = data.pages.map((page) => page.text).join("\n\n");
+      copyState.value = (await copyText(text)) ? "copied" : "failed";
+    }
+  } catch (e) {
+    error.value = e.userMessage;
+  } finally {
+    copying.value = false;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copyState.value = ""), 4000);
+  }
+}
+
 async function download() {
   try {
     await filesStore.download(props.file);
@@ -80,6 +141,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  releaseObjectUrl();
   document.removeEventListener("keydown", onKeydown);
   document.body.style.overflow = "";
   previouslyFocused?.focus?.();
@@ -220,6 +282,28 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </object>
+
+        <div class="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            :disabled="copying"
+            class="rounded-base border border-white/30 bg-white/10 px-4 py-1.5 text-body-sm font-medium text-white transition hover:bg-white/20 disabled:opacity-60"
+            @click="copyDocumentText"
+          >
+            <i
+              :class="[
+                'fas mr-1.5',
+                copying ? 'fa-circle-notch fa-spin' : copyState === 'copied' ? 'fa-check' : 'fa-copy',
+              ]"
+              aria-hidden="true"
+            ></i>
+            <template v-if="copying">Reading the document…</template>
+            <template v-else-if="copyState === 'copied'">Text copied</template>
+            <template v-else-if="copyState === 'none'">No text in this one — it's a scan</template>
+            <template v-else-if="copyState === 'failed'">Your browser blocked the clipboard</template>
+            <template v-else>Copy the text</template>
+          </button>
+        </div>
 
         <p class="text-center text-caption text-gray-400">
           Not showing?

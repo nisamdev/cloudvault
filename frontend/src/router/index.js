@@ -86,10 +86,40 @@ const routes = [
         meta: { title: "Photo Gallery" },
       },
       {
+        path: "private",
+        name: "private",
+        component: () => import("@/views/PrivateView.vue"),
+        meta: { title: "Private" },
+      },
+      {
         path: "shared",
         name: "shared",
         component: () => import("@/views/SharedView.vue"),
         meta: { title: "Shared" },
+      },
+      {
+        path: "household",
+        name: "household-register",
+        component: () => import("@/views/HouseholdRegisterView.vue"),
+        meta: { title: "Register" },
+      },
+      {
+        path: "household/new",
+        name: "record-new",
+        component: () => import("@/views/RecordNewView.vue"),
+        meta: { title: "Add record" },
+      },
+      {
+        path: "household/new/:type",
+        name: "record-create",
+        component: () => import("@/views/RecordCreateView.vue"),
+        meta: { title: "New record" },
+      },
+      {
+        path: "household/:id",
+        name: "record",
+        component: () => import("@/views/RecordView.vue"),
+        meta: { title: "Record" },
       },
       {
         path: "utilities",

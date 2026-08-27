@@ -184,4 +184,37 @@ RSpec.describe "Api::V1 trash" do
       expect(folder.reload).to be_persisted
     end
   end
+
+  describe "DELETE /api/v1/trash" do
+    it "purges every trashed file, not just one page of them" do
+      files = Array.new(3) { create(:stored_file, :with_attachment, :trashed, user: owner) }
+      owner.update!(storage_used: files.sum(&:size))
+
+      delete "/api/v1/trash", headers: auth_headers_for(owner)
+
+      expect(response).to have_http_status(:ok)
+      expect(json["files"]).to eq(3)
+      expect(StoredFile.where(id: files.map(&:id))).to be_empty
+    end
+
+    it "removes trashed folders too" do
+      folder = Folder.create!(user: owner, name: "Gone", trashed_at: Time.current)
+
+      delete "/api/v1/trash", headers: auth_headers_for(owner)
+
+      expect(response).to have_http_status(:ok)
+      expect(json["folders"]).to eq(1)
+      expect(Folder.find_by(id: folder.id)).to be_nil
+    end
+
+    it "does not touch active files" do
+      keep = create(:stored_file, user: owner)
+      create(:stored_file, :trashed, user: owner)
+
+      delete "/api/v1/trash", headers: auth_headers_for(owner)
+
+      expect(keep.reload).to be_persisted
+      expect(keep).not_to be_trashed
+    end
+  end
 end

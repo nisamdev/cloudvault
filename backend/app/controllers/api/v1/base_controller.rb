@@ -6,6 +6,7 @@ module Api
     # envelope, and pagination headers.
     class BaseController < ApplicationController
       include Authenticable
+      include VaultAccess
       include Pagy::Backend
 
       # Order matters: Rails matches rescue_from handlers bottom-up, so the most

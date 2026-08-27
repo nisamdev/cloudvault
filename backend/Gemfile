@@ -21,6 +21,9 @@ gem "image_processing", "~> 1.2"
 # Streams ZIP archives entry by entry, so downloading a whole folder never
 # buffers the archive in memory or on disk.
 gem "zip_kit", "~> 6.3"
+# zip_kit only writes. Restoring a backup means reading one back, which is what
+# rubyzip is for — the two do opposite halves of the same job.
+gem "rubyzip", "~> 2.3", require: "zip"
 gem "ruby-vips", "~> 2.2"
 # Reads EXIF: capture time, GPS coordinates and camera. Pure Ruby, no bindings.
 gem "exifr", "~> 1.4"
@@ -31,6 +34,9 @@ gem "rqrcode", "~> 3.0"
 # Overlays a signature onto an existing PDF page without rewriting the file.
 # MIT-licensed, unlike the usual alternative (HexaPDF is AGPL or commercial).
 gem "combine_pdf", "~> 1.0"
+# Reads the text layer out of a PDF. Pure Ruby, so no poppler-utils in the image
+# and nothing new to install on a workstation.
+gem "pdf-reader", "~> 2.12"
 
 # --- Background jobs --------------------------------------------------------
 gem "sidekiq", "~> 8.0"

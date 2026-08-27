@@ -50,8 +50,7 @@ export function fileIcon(file) {
 
 /**
  * Section heading a photo belongs under in the gallery.
- * Today / Yesterday / This week / month / month + year, per the implementation
- * guide's date grouping.
+ * Day-level like Google Photos: Today / Yesterday / weekday+date / full date.
  */
 export function dateGroup(value) {
   if (!value) return "Undated";
@@ -64,12 +63,20 @@ export function dateGroup(value) {
 
   if (dayDiff === 0) return "Today";
   if (dayDiff === 1) return "Yesterday";
-  if (dayDiff < 7) return "Earlier this week";
 
   const sameYear = date.getFullYear() === now.getFullYear();
+  if (sameYear) {
+    return date.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+  }
+
   return date.toLocaleDateString(undefined, {
     month: "long",
-    year: sameYear ? undefined : "numeric",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
@@ -79,7 +86,8 @@ export function groupByDate(items, key = "created_at") {
   const index = new Map();
 
   for (const item of items) {
-    const label = dateGroup(item[key]);
+    const raw = typeof key === "function" ? key(item) : item[key];
+    const label = dateGroup(raw);
 
     if (!index.has(label)) {
       index.set(label, { label, items: [] });
