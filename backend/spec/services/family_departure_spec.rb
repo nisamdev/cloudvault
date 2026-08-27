@@ -119,6 +119,43 @@ RSpec.describe FamilyDeparture do
     end
   end
 
+  describe ".settle_orphans, for everything already left in that state" do
+    # People were removed before removal settled anything, so the family was
+    # left with a file it could not open, could not unshare, and could only
+    # delete — while the person who left could still do all three.
+    it "hands an already-orphaned share to the family's owner" do
+      membership.destroy!
+
+      described_class.settle_orphans
+
+      expect(shared_file.reload.user_id).to eq(owner.id)
+      expect(shared_record.reload.user_id).to eq(owner.id)
+      expect(shared_folder.reload.user_id).to eq(owner.id)
+    end
+
+    it "leaves alone what a current member shared" do
+      described_class.settle_orphans
+
+      expect(shared_file.reload.user_id).to eq(leaver.id)
+    end
+
+    # A file whose column says shared and which grants nobody anything is
+    # listed by every family screen and opens for none of them.
+    it "repairs a file whose grant has drifted away from its column" do
+      AccessGrant.where(resource: shared_file).delete_all
+      expect(PermissionChecker.can_view?(owner, shared_file.reload)).to be(false)
+
+      expect(described_class.settle_orphans[:regranted]).to eq(1)
+      expect(PermissionChecker.can_view?(owner, shared_file.reload)).to be(true)
+    end
+
+    it "changes nothing when there is nothing to settle" do
+      described_class.settle_orphans
+
+      expect(described_class.settle_orphans.values.sum).to eq(0)
+    end
+  end
+
   # A secret is sealed with the vault key of whoever wrote it, so a record
   # changing hands cannot make its password readable by anybody else. It never
   # was — this counts them rather than pretending otherwise.

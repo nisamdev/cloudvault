@@ -23,6 +23,54 @@ class FamilyDeparture
   # Shared with the family, as opposed to kept private within it.
   SHARED_FILE_VISIBILITIES = %w[family shared_link].freeze
 
+  # Everything already left in the state this class exists to prevent.
+  #
+  # People were removed from families before removal settled anything, so their
+  # contributions are still theirs: the family sees a file it cannot open and
+  # cannot unshare, the person who left can still delete it, and the only way
+  # out is to destroy it. This puts those right, and re-syncs any file whose
+  # visibility column and access grant have drifted apart — a file that says it
+  # is shared but grants nobody anything is listed and unopenable, which is the
+  # same bug wearing a different hat.
+  #
+  # @return [Hash] what it changed
+  def self.settle_orphans
+    handed = { files: 0, records: 0, folders: 0 }
+
+    Family.find_each do |family|
+      member_ids = family.family_members.pluck(:user_id)
+      heir_id = family.owner_id
+      next if heir_id.blank?
+
+      handed[:files] += StoredFile.where(family_id: family.id, visibility: SHARED_FILE_VISIBILITIES)
+                                  .where.not(user_id: member_ids)
+                                  .update_all(user_id: heir_id, updated_at: Time.current)
+      handed[:records] += VaultRecord.where(family_id: family.id, visibility: "family")
+                                     .where.not(user_id: member_ids)
+                                     .update_all(user_id: heir_id, updated_at: Time.current)
+      handed[:folders] += Folder.where(family_id: family.id)
+                                .where.not(user_id: member_ids)
+                                .update_all(user_id: heir_id, updated_at: Time.current)
+    end
+
+    handed.merge(regranted: resync_grants)
+  end
+
+  # A file whose column says "shared with the family" and which grants nobody
+  # anything appears in every family listing and opens for none of them.
+  def self.resync_grants
+    fixed = 0
+
+    StoredFile.where.not(family_id: nil).where(visibility: SHARED_FILE_VISIBILITIES).find_each do |file|
+      next if AccessGrant.exists?(resource: file, subject_type: "Family", subject_id: file.family_id)
+
+      file.send(:sync_family_grant)
+      fixed += 1
+    end
+
+    fixed
+  end
+
   def initialize(membership)
     @membership = membership
     @family = membership.family

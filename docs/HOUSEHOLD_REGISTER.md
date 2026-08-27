@@ -525,6 +525,19 @@ to whoever owns the family, along with their family folders, and any grant
 standing in their name on this family's things is revoked. Their `current_family`
 stops pointing at a family they are not in.
 
+Two things went wrong here rather than one, and only the first was about
+removal. The second is that a file's `visibility` column and its access grant
+can drift apart. The grant is what `PermissionChecker` actually reads; the
+column is what every listing queries. A file saying "shared with the family"
+while granting nobody anything therefore appears on every family screen and
+opens for none of them — and because it is not yours, you cannot unshare it
+either. The only button left that does anything is Delete, which is exactly how
+it was reported.
+
+`rake families:settle_departures` puts both right and is safe to run twice: it
+hands orphaned shares to the family owner and re-grants any file whose column
+and grant have come apart.
+
 One thing this cannot fix, and does not pretend to: a record secret is sealed
 with the vault key of whoever wrote it, so a record changing hands does not make
 its password readable by the new owner. It never was readable by anybody else —
