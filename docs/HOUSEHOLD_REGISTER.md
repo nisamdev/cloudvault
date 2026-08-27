@@ -83,6 +83,12 @@ listing query touches ciphertext it has no business touching.
 
 ## III. What a family keeps
 
+Two types name themselves from a field rather than a separate title: **Person**
+from `full_name`, and anything with a `name`. Typing "Aisha Rahman" into a Title
+box and then again into Full name is the kind of small stupidity that makes a
+register feel like paperwork.
+
+
 Nine starting templates. Every record also takes custom fields invented on the
 spot.
 
@@ -292,7 +298,7 @@ build, and once the extension holds the key that stops being a promise.
 | 1 | The records model — tables, templates, the record page ✅ | 2–3 days | **Done** (2026-08-26) — plus Login type, attachments, Register grid |
 | 2 | Secrets in records — reveal, copy, history, key-agnostic format ✅ | 1–2 days | **Done** (2026-08-26) |
 | 3 | `vault:backup` + `vault:restore` — the cheap half, both directions ✅ | half a day | **Done** (2026-08-26) |
-| 4 | The remaining types ✅ (all nine shipped with the model) | 1–2 days | Next |
+| 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | Next |
 | 5 | The generator, in the web app | half a day | |
 | 6 | Expiry reminders | 1–2 days | |
 | 7 | Who can use the vault — the per-person switch | half a day | |
