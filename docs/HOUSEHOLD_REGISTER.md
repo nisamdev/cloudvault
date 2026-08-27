@@ -184,8 +184,16 @@ In the extension and in the web app, because credentials get created in both.
 - **history** — replacing a password keeps the old one; sites reject changes more
   often than they admit
 
-Generated in the browser with `crypto.getRandomValues`. Nothing reaches the
-server until it has been chosen and saved.
+Generated in the browser with `crypto.getRandomValues`, using rejection
+sampling — a byte taken modulo 26 makes the first six letters likelier than the
+rest, which quietly costs entropy. Nothing reaches the server until it has been
+chosen and saved.
+
+The wordlist is 1,996 short, common, unambiguous words — about 11 bits each,
+which is better than the EFF short list. Six words is the default and works out
+at roughly 75 bits, or thousands of years of guessing at ten billion a second.
+Capitalising every word adds nothing an attacker has to guess, and the strength
+figure says so rather than flattering it.
 
 ## VIII. Who can use the vault
 
@@ -299,7 +307,7 @@ build, and once the extension holds the key that stops being a promise.
 | 2 | Secrets in records — reveal, copy, history, key-agnostic format ✅ | 1–2 days | **Done** (2026-08-26) |
 | 3 | `vault:backup` + `vault:restore` — the cheap half, both directions ✅ | half a day | **Done** (2026-08-26) |
 | 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | Next |
-| 5 | The generator, in the web app | half a day | |
+| 5 | The generator, in the web app ✅ | half a day | |
 | 6 | Expiry reminders | 1–2 days | |
 | 7 | Who can use the vault — the per-person switch | half a day | |
 | 8 | Short-term sharing — expiring grants, burn-after-reading links | 2 days | |

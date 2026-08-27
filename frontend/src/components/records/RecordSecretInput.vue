@@ -1,11 +1,12 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import PasswordGenerator from "@/components/records/PasswordGenerator.vue";
 
 /**
  * One secret field on a create/edit form. Values never come back from the API —
  * leave blank to keep an existing password.
  */
-defineProps({
+const props = defineProps({
   field: { type: Object, required: true },
   modelValue: { type: String, default: "" },
   saved: { type: Boolean, default: false },
@@ -14,6 +15,18 @@ defineProps({
 const emit = defineEmits(["update:modelValue"]);
 
 const visible = ref(false);
+const generating = ref(false);
+
+// Security answers are sentences somebody has to remember saying, not strings
+// to generate. Offering a generator there would be noise.
+const canGenerate = computed(() => !props.field.key.includes("answer"));
+
+function use(password) {
+  emit("update:modelValue", password);
+  generating.value = false;
+  // Nothing to hide: they just chose it, and they need to see what they got.
+  visible.value = true;
+}
 </script>
 
 <template>
@@ -38,19 +51,38 @@ const visible = ref(false);
         :type="visible ? 'text' : 'password'"
         autocomplete="new-password"
         :placeholder="saved ? 'Saved — enter a new value to replace' : field.hint"
-        class="w-full rounded-base border border-gray-300 py-2 pl-3 pr-10 font-mono text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+        class="w-full rounded-base border border-gray-300 py-2 pl-3 pr-16 font-mono text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
         @input="emit('update:modelValue', $event.target.value)"
       />
-      <button
-        type="button"
-        class="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:text-gray-700"
-        :aria-label="visible ? 'Hide password' : 'Show password'"
-        :aria-pressed="visible"
-        @click="visible = !visible"
-      >
-        <i :class="['fas', visible ? 'fa-eye-slash' : 'fa-eye']" aria-hidden="true"></i>
-      </button>
+      <span class="absolute right-2 top-1/2 flex -translate-y-1/2 items-center">
+        <button
+          v-if="canGenerate"
+          type="button"
+          class="rounded p-1 text-gray-400 hover:text-primary-600"
+          :aria-label="generating ? 'Close the generator' : 'Make a password'"
+          :aria-expanded="generating"
+          @click="generating = !generating"
+        >
+          <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
+        </button>
+        <button
+          type="button"
+          class="rounded p-1 text-gray-400 hover:text-gray-700"
+          :aria-label="visible ? 'Hide password' : 'Show password'"
+          :aria-pressed="visible"
+          @click="visible = !visible"
+        >
+          <i :class="['fas', visible ? 'fa-eye-slash' : 'fa-eye']" aria-hidden="true"></i>
+        </button>
+      </span>
     </div>
+
+    <PasswordGenerator
+      v-if="generating"
+      class="mt-2"
+      @use="use"
+      @close="generating = false"
+    />
     <p v-if="saved && !modelValue" class="mt-1 text-caption text-gray-500">
       A value is saved. Leave empty to keep it, or enter something new to replace it.
     </p>
