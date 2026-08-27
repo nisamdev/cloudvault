@@ -151,14 +151,13 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
       <div v-else-if="done" class="rounded-xl bg-white p-8 text-center shadow-sm">
         <i class="fas fa-circle-check text-4xl text-success-500" aria-hidden="true"></i>
         <h2 class="mt-4 text-h3 font-semibold text-gray-800">
-          {{ done.suggestion ? "Read and sent to your computer" : "Saved to CloudVault" }}
+          {{ forRecord ? "Sent to your computer" : "Saved to CloudVault" }}
         </h2>
-        <p v-if="done.suggestion" class="mt-2 text-body text-gray-600">
-          {{ Object.keys(done.suggestion.fields || {}).length }} detail(s) found.
-          Check them on your computer and save.
+        <p v-if="forRecord" class="mt-2 text-body text-gray-600">
+          Finish it on your computer: straighten the scan, check what it reads and save.
         </p>
         <ul class="mt-3 space-y-1">
-          <li v-for="file in done.files" :key="file.id" class="text-body text-gray-600">
+          <li v-for="file in done.files ?? []" :key="file.id" class="text-body text-gray-600">
             {{ file.name }} · {{ formatFileSize(file.size) }}
           </li>
         </ul>
@@ -313,7 +312,7 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
 
           <!-- Options -->
           <div class="mt-4 space-y-3 rounded-lg bg-white p-4 shadow-sm">
-            <div>
+            <div v-if="!forRecord">
               <label for="scan-name" class="mb-1 block text-body-sm font-medium text-gray-700">
                 Name
               </label>
@@ -350,7 +349,7 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
               </div>
             </div>
 
-            <div>
+            <div v-if="!forRecord">
               <span class="mb-1 block text-body-sm font-medium text-gray-700">Style</span>
               <div class="grid grid-cols-2 gap-2">
                 <button
@@ -405,6 +404,9 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
           @click="upload"
         >
           <span v-if="uploading">Saving… {{ progress }}%</span>
+          <span v-else-if="forRecord">
+            Send {{ pages.length }} page{{ pages.length === 1 ? "" : "s" }} to my computer
+          </span>
           <span v-else>
             Save {{ pages.length }} page{{ pages.length === 1 ? "" : "s" }} to CloudVault
           </span>

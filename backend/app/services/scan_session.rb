@@ -73,16 +73,23 @@ class ScanSession
   # The desktop cannot see what the phone did, so the phone leaves a receipt and
   # the desktop polls for it. Redis rather than a table: short-lived scratch
   # state that should expire along with the token.
-  def record_upload(files, suggestion: nil)
+  # @param files [Array] vault files the phone stored, for a "files" scan
+  # @param pages [Array<Hash>, nil] photographs waiting to be trimmed, for a
+  #   "record" scan — nothing is filed until the computer has been through them
+  # @param chose [String, nil] the preset the phone picked, which the desktop
+  #   needs in order to open the right form
+  def record_upload(files: [], pages: nil, chose: nil)
     return if @jti.blank?
+
+    chosen = DocumentPresets[chose.presence || preset]
 
     payload = {
       completed_at: Time.current.iso8601,
       purpose: purpose,
+      preset: chosen&.key,
+      record_type: chosen&.record_type,
       files: files.map { |f| { id: f.id, name: f.name, size: f.size } },
-      # What the desktop should open when the phone is done: for a record, the
-      # fields read off the document, waiting to be checked.
-      suggestion: suggestion
+      pages: pages
     }.compact
 
     # to_i: the Redis client rejects an ActiveSupport::Duration.

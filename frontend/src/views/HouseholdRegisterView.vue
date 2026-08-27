@@ -39,23 +39,22 @@ const loginCount = computed(() => records.value.filter((r) => r.record_type === 
 const router = useRouter();
 
 /**
- * The phone has read a document and left the fields behind. Open the form it
- * filled in, with the scan already attached — nothing is saved until it has
- * been looked at.
+ * The phone has photographed a document and left the pages waiting. Open the
+ * form it belongs to and carry the scan across: the trimming, the reading and
+ * the checking all happen there, on a screen big enough to do them properly.
  */
 function onScanned(receipt) {
   scanning.value = false;
 
-  const suggestion = receipt?.suggestion;
-  if (!suggestion) {
+  if (!receipt?.pages?.length) {
     load();
     return;
   }
 
   router.push({
     name: "record-create",
-    params: { type: suggestion.record_type || "other" },
-    query: { from_scan: JSON.stringify(suggestion) },
+    params: { type: receipt.record_type || "other" },
+    query: { scan: receipt.token },
   });
 }
 

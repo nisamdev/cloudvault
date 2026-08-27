@@ -85,36 +85,30 @@ module Api
                               code: "too_many_pages", status: :unprocessable_content)
         end
 
-        # A page that is going to be *read* is left alone. Document mode lifts
-        # contrast with a histogram stretch, which makes a photo legible to a
-        # person and — on an already-crisp page — clips it to the point where
-        # tesseract sees nothing at all. Pages being kept still get the
-        # treatment; pages being read do not.
+        # A document being photographed for a record is not touched beyond what
+        # it takes to open it on a computer: the phone is the camera, and the
+        # trimming and reading happen on the desktop where they can be checked.
+        # Colour mode is that minimum — it turns the EXIF rotation into real
+        # pixels and caps the size, and changes nothing else.
         style = @session.for_record? ? "colour" : (params[:style].presence || "document")
         scanner = DocumentScanner.new(mode: style)
         processed = pages.map { |page| scanner.process(page.read) }
 
-        stored = if @session.for_record?
-                   # A document is always one PDF: it is what gets attached to
-                   # the record and what gets read for its fields.
-                   store_as_pdf(processed)
-        elsif params[:mode] == "images"
-                   store_as_images(processed, pages)
-        else
-                   store_as_pdf(processed)
+        if @session.for_record?
+          return complete_record_scan(processed)
         end
 
+        stored = params[:mode] == "images" ? store_as_images(processed, pages) : store_as_pdf(processed)
+
         files = Array(stored)
-        suggestion = @session.for_record? ? read_document(files.first) : nil
         # Leaves a receipt the desktop polls for, so the QR dialog knows when
         # the phone has finished.
-        @session.record_upload(files, suggestion: suggestion)
+        @session.record_upload(files: files)
 
         render json: {
           files: files.map { |file| { id: file.id, name: file.name, size: file.size } },
-          page_count: processed.size,
-          suggestion: suggestion
-        }.compact, status: :created
+          page_count: processed.size
+        }, status: :created
       rescue FileUploader::QuotaExceeded => e
         render_error(message: e.message, code: "quota_exceeded", status: :content_too_large)
       rescue FileUploader::Error => e
@@ -123,28 +117,31 @@ module Api
 
       private
 
-      # Reads the scan the phone just sent, so the desktop has something to check
-      # rather than an empty form.
-      def read_document(file)
-        return nil if file.nil?
+      # The photographs are held, not filed. Nothing goes in the vault until the
+      # computer has trimmed them and the PDF has been built from what the
+      # person actually approved, so these are unattached blobs with a
+      # short-lived signed id rather than files anybody has to tidy up.
+      def complete_record_scan(processed)
+        held = processed.each_with_index.map do |bytes, index|
+          blob = ActiveStorage::Blob.create_and_upload!(
+            io: StringIO.new(bytes),
+            filename: "scan-page-#{index + 1}.jpg",
+            content_type: "image/jpeg"
+          )
 
-        preset = params[:preset].presence || @session.preset.presence || "other"
-        bytes = file.attachment.download
-        extracted = PdfTextExtractor.new(bytes).call
-        text = extracted.any_text? ? extracted.text : PdfOcr.new(bytes).call.text
+          { id: blob.signed_id(expires_in: HOLD_TTL), name: blob.filename.to_s, size: blob.byte_size }
+        end
 
-        DocumentReader.new(text, preset).call.to_h.merge(
-          file: { id: file.id, name: file.name, size: file.size },
-          found_text: text.present?
-        )
-      rescue StandardError => e
-        # A document that cannot be read still gets kept; the desktop opens an
-        # empty form instead of nothing at all.
-        Rails.logger.error("[scan] could not read: #{e.class}: #{e.message}")
-        nil
+        chose = params[:preset].presence || @session.preset
+        @session.record_upload(pages: held, chose: chose)
+
+        render json: { pages: held, page_count: held.size, preset: chose }, status: :created
       end
 
       MAX_PAGES = 30
+      # Long enough to walk back to the computer and take your time over the
+      # crop; short enough that an intercepted id is worth nothing tomorrow.
+      HOLD_TTL = 2.hours
 
       def load_session
         @session = ScanSession.from_token(params[:token])

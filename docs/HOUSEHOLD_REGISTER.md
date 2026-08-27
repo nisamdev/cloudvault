@@ -83,14 +83,18 @@ listing query touches ciphertext it has no business touching.
 
 ## III. What a family keeps
 
-Two types name themselves from a field rather than a separate title: **Person**
-from `full_name`, and anything with a `name`. Typing "Aisha Rahman" into a Title
-box and then again into Full name is the kind of small stupidity that makes a
-register feel like paperwork.
+A template says which of its own fields names the record, in `title_from`:
+**Person** is named by `full_name`, **Login** by `name`. Typing "Aisha Rahman"
+into a Title box and then again into Full name is the kind of small stupidity
+that makes a register feel like paperwork.
 
+A document is not named that way, and the field cannot be guessed from its
+name — a passport also carries a full name, and naming the record after it
+leaves somebody with four records all called their own name. So a scanned
+document is named for whose it is *and* what it is: "Aisha Rahman — Passport".
 
-Nine starting templates. Every record also takes custom fields invented on the
-spot.
+Fourteen starting templates. Every record also takes custom fields invented on
+the spot.
 
 - **Login** — a plain website account: site, username, *password*
 - **Service account** — provider, account email, username, website, customer ref,
@@ -99,8 +103,20 @@ spot.
   sponsor, application ref, conditions, scan
 - **Property** — address, owned/rented, purchase date, title number, council tax
   ref, gas meter, electric meter, deed
-- **Person** — full name, date of birth, passport no., **passport expiry**,
-  licence no., national ID, passport scan
+- **Person** — full name, date of birth, national ID, blood group, relationship.
+  Who somebody *is*. What they hold is a document of its own, linked back with
+  `held_by`
+- **Passport** — full name, passport no., nationality, date & place of birth,
+  issued, **expires**, place of issue, authority, scan
+- **Driving licence** — full name, licence no., date of birth, issued,
+  **expires**, authority, entitlements, address, scan
+- **Birth certificate** — full name, date & place of birth, entry no.,
+  registered, district, mother, father, scan. Nothing on it expires
+- **Health card** — full name, NHS or health number, date of birth, GP, blood
+  group, **expires** (a GHIC does; an NHS number does not), scan
+- **Document** — the catch-all: what it is, held by, reference, issued,
+  **expires**, issued by. Somewhere to put a marriage certificate without
+  inventing a template for it
 - **Vehicle** — registration, make & model, VIN, **insurance renewal**, **MOT
   due**, V5C
 - **Money** — institution, account name, sort code, account no., policy no.,
@@ -327,19 +343,40 @@ The pages become a PDF, which is both what gets attached to the record and what
 gets read. One artefact, so the thing kept is exactly the thing that was read,
 and it is already in the format you would send to somebody.
 
-**From the phone, the same way files are scanned.** The register has its own QR
-code. The phone opens it, asks which document this is, photographs it, and the
-desktop opens a filled-in form with the scan already attached — polled through
-the same receipt the file scan uses.
+**The phone is the camera; the computer does the rest.** The register has its
+own QR code. The phone opens it, asks which document this is, takes the
+photograph and sends it — and stops there. The desktop opens the right form on
+its own, and that form runs the whole finish: straighten the pages, build the
+PDF, read it, fill itself in, and show the scan beside the fields to check
+against.
 
-One thing that had to change: the phone's "document" style lifts contrast with a
-histogram stretch, which makes a photo easier for a person to read and clips a
-crisp page to the point where tesseract sees nothing. Pages being *kept* still
-get the treatment; pages being *read* are left alone.
+Splitting it there is the whole point. Trimming a photograph and deciding
+whether a machine read a passport number correctly are both things somebody has
+to *look* at, and a phone is the worst screen in the house to look at them on.
+Nothing is filed until the person has been through it: the pages wait as
+unattached blobs behind a signed id that expires in two hours, and a nightly
+sweep releases whatever nobody came back for.
+
+Two things this cost, both found by testing rather than by reading:
+
+- The phone's "document" style lifts contrast with a histogram stretch, which
+  helps a person read a photo and clips a crisp page until tesseract sees
+  nothing. Pages being kept still get it; pages being read do not.
+- A licence number cannot be looked for by its edges. OCR puts a space where the
+  card prints one and hangs a stray letter off the end where the card has a
+  border, so a pattern anchored on word boundaries finds nothing on a real
+  photograph. It is found instead by sliding a sixteen-character window along
+  the long runs until one has the right shape.
+
+The card carries no check digit, so "confirmed" can only mean the number
+agreeing with what is printed beside it — the licence number encodes the date of
+birth and the surname, and those two readings agreeing is as close to a check
+digit as the document gets. Where they disagree, the value is still offered and
+simply not vouched for.
 
 `DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,HealthCard}`,
-`DocumentReader`, `POST /document_captures`, and `purpose` on the scan
-session.
+`DocumentReader`, `POST /document_captures`, `GET /document_captures/page/:id`,
+`purpose` on the scan session, and `PurgeHeldScansJob`.
 
 ## Still open, outside the numbered steps
 

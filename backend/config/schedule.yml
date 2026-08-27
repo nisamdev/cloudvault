@@ -4,3 +4,8 @@ purge_trash:
   class: PurgeTrashJob
   queue: maintenance
   description: "Permanently delete items past the trash retention window"
+purge_held_scans:
+  cron: "45 3 * * *"   # daily, just after the trash sweep
+  class: PurgeHeldScansJob
+  queue: maintenance
+  description: "Release photographs from scans nobody came back to finish"

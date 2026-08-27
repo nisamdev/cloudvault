@@ -11,7 +11,7 @@ class DocumentReader
       {
         preset: preset.key,
         record_type: record_type,
-        title: fields["full_name"] || fields["title"],
+        title: title,
         fields: fields,
         # Which of these the document itself confirms, by check digit or by two
         # parts of it agreeing. The screen marks these differently: a value the
@@ -19,6 +19,15 @@ class DocumentReader
         verified: verified,
         read_as: format
       }
+    end
+
+    # A document is named for whose it is and what it is. Four of somebody's
+    # documents all called their name would be four rows you have to open.
+    def title
+      name = fields["full_name"] || fields["holder"] || fields["title"]
+      return name if name.blank? || preset.record_type.nil?
+
+      "#{name} — #{preset.label}"
     end
   end
 

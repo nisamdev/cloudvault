@@ -13,27 +13,31 @@ RSpec.describe DocumentReader do
   describe "a passport" do
     subject(:result) { described_class.new(passport_text, "passport").call.to_h }
 
-    # Person already holds both a passport number and a licence number, so a
-    # passport and a licence describe the same record.
-    it "fills a person record" do
-      expect(result[:record_type]).to eq("person")
+    # A passport is a document in its own right, with its own expiry and its
+    # own scan. It is not a column on the person who holds it.
+    it "fills a passport record" do
+      expect(result[:record_type]).to eq("passport")
       expect(result[:fields]).to eq(
         "full_name" => "Anna Maria Eriksson",
         "date_of_birth" => "1974-08-12",
         "passport_number" => "L898902C3",
-        "passport_expires_on" => "2012-04-15"
+        "expires_on" => "2012-04-15",
+        "nationality" => "UTO",
+        "sex" => "Female"
       )
     end
 
-    it "names the record after the person on it" do
-      expect(result[:title]).to eq("Anna Maria Eriksson")
+    # Whose it is and what it is. Named after the person alone, somebody's four
+    # documents would be four rows with the same name on them.
+    it "names the record for whose it is and what it is" do
+      expect(result[:title]).to eq("Anna Maria Eriksson — Passport")
     end
 
     # The screen shows these differently: a value the document vouches for
     # deserves less squinting than one that was guessed at.
     it "says which fields the document itself confirms" do
       expect(result[:verified]).to contain_exactly(
-        "passport_number", "date_of_birth", "passport_expires_on"
+        "passport_number", "date_of_birth", "expires_on"
       )
       expect(result[:read_as]).to eq("TD3")
     end
@@ -65,12 +69,15 @@ RSpec.describe DocumentReader do
       TEXT
     end
 
-    it "reads the numbered lines" do
+    it "fills a driving licence record" do
       result = described_class.new(text, "driving_licence").call.to_h
 
+      expect(result[:record_type]).to eq("driving_licence")
       expect(result[:fields]).to include(
+        "full_name" => "SARAH ANN MORGAN",
         "licence_number" => "MORGA657054SM9IJ",
-        "licence_expires_on" => "2029-03-18"
+        "issued_on" => "2019-03-19",
+        "expires_on" => "2029-03-18"
       )
     end
 
@@ -82,7 +89,22 @@ RSpec.describe DocumentReader do
       # MORGA-6-57-05-4: decade 6, month 57 (over fifty, so female, month 7),
       # day 05, year digit 4 — the fifth of July 1964.
       expect(result[:fields]["date_of_birth"]).to eq("1964-07-05")
-      expect(result[:verified]).to include("date_of_birth")
+    end
+
+    # The card does not print a check digit, so "confirmed" can only mean two
+    # parts of it agreeing. This one prints no date of birth at all, so the
+    # number is the sole source and nothing about it is confirmed.
+    it "will not vouch for a date only the number knows" do
+      result = described_class.new(text, "driving_licence").call.to_h
+
+      expect(result[:verified]).not_to include("date_of_birth")
+    end
+
+    it "vouches for the date when the card prints it too" do
+      printed = text.sub("2. SARAH ANN", "2. SARAH ANN\n3. 05.07.1964")
+      result = described_class.new(printed, "driving_licence").call.to_h
+
+      expect(result[:verified]).to include("date_of_birth", "licence_number")
     end
   end
 
@@ -109,13 +131,14 @@ RSpec.describe DocumentReader do
       result = described_class.new(text, "birth_certificate").call.to_h
 
       expect(result[:fields]["full_name"]).to eq("Thomas Reed")
-      expect(result[:record_type]).to eq("person")
+      expect(result[:record_type]).to eq("birth_certificate")
     end
 
+    # "Something else" is still a document; it just has no shelf of its own.
     it "reads a document it has no preset for without failing" do
       result = described_class.new("Some notes with no structure", "other").call.to_h
 
-      expect(result[:record_type]).to be_nil
+      expect(result[:record_type]).to eq("document")
       expect(result[:fields]).to eq({})
     end
   end

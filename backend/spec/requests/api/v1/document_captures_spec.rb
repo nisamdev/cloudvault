@@ -49,12 +49,12 @@ RSpec.describe "Api::V1::DocumentCaptures" do
       capture(passport_page)
 
       expect(response).to have_http_status(:created)
-      expect(json["record_type"]).to eq("person")
-      expect(json["title"]).to eq("Anna Maria Eriksson")
+      expect(json["record_type"]).to eq("passport")
+      expect(json["title"]).to eq("Anna Maria Eriksson — Passport")
       expect(json["fields"]).to include(
         "passport_number" => "L898902C3",
         "date_of_birth" => "1974-08-12",
-        "passport_expires_on" => "2012-04-15"
+        "expires_on" => "2012-04-15"
       )
     end
 

@@ -18,12 +18,14 @@ class DocumentPresets
     Preset.new(
       key: "passport", label: "Passport", icon: "fa-passport",
       hint: "Photograph the page with your photo and the two lines of <<< at the bottom",
-      record_type: "person", extractor: DocumentExtractors::Mrz,
+      record_type: "passport", extractor: DocumentExtractors::Mrz,
       maps: {
         "full_name" => "full_name",
         "date_of_birth" => "date_of_birth",
         "document_number" => "passport_number",
-        "expires_on" => "passport_expires_on"
+        "expires_on" => "expires_on",
+        "country" => "nationality",
+        "sex" => "sex"
       }
     ),
 
@@ -42,18 +44,20 @@ class DocumentPresets
     Preset.new(
       key: "driving_licence", label: "Driving licence", icon: "fa-car",
       hint: "Photograph the front of the card, with the numbered lines",
-      record_type: "person", extractor: DocumentExtractors::DrivingLicence,
+      record_type: "driving_licence", extractor: DocumentExtractors::DrivingLicence,
       maps: {
+        "full_name" => "full_name",
         "licence_number" => "licence_number",
-        "expires_on" => "licence_expires_on",
-        "date_of_birth" => "date_of_birth"
+        "date_of_birth" => "date_of_birth",
+        "issued_on" => "issued_on",
+        "expires_on" => "expires_on"
       }
     ),
 
     Preset.new(
       key: "health_card", label: "Health card", icon: "fa-kit-medical",
       hint: "Photograph the side with the number on it",
-      record_type: "person", extractor: DocumentExtractors::HealthCard,
+      record_type: "health_card", extractor: DocumentExtractors::HealthCard,
       maps: {
         "nhs_number" => "nhs_number",
         "full_name" => "full_name",
@@ -64,14 +68,31 @@ class DocumentPresets
     Preset.new(
       key: "birth_certificate", label: "Birth certificate", icon: "fa-certificate",
       hint: "Photograph the whole certificate, flat and square on",
-      record_type: "person", extractor: nil,
-      maps: { "name" => "full_name", "date of birth" => "date_of_birth", "born" => "date_of_birth" }
+      record_type: "birth_certificate", extractor: nil,
+      maps: {
+        "name" => "full_name",
+        "date of birth" => "date_of_birth",
+        "born" => "date_of_birth",
+        "place of birth" => "place_of_birth",
+        "district" => "district",
+        "mother" => "mother",
+        "father" => "father"
+      }
     ),
 
     Preset.new(
       key: "other", label: "Something else", icon: "fa-file-lines",
-      hint: "Anything with writing on it — the details it finds go in a record you choose",
-      record_type: nil, extractor: nil, maps: {}
+      hint: "Anything with writing on it — it becomes a document you can name",
+      record_type: "document", extractor: nil,
+      maps: {
+        "name" => "full_name",
+        "number" => "document_number",
+        "reference" => "document_number",
+        "issued" => "issued_on",
+        "expires" => "expires_on",
+        "expiry" => "expires_on",
+        "issued by" => "authority"
+      }
     )
   ].freeze
 

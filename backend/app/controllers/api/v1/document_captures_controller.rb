@@ -22,6 +22,19 @@ module Api
         }
       end
 
+      # GET /api/v1/document_captures/page/:id — a photograph the phone left
+      #
+      # The signed id is minted by the scan and expires with it. Signing in is
+      # still required, so a leaked id is worth nothing on its own.
+      def page
+        blob = ActiveStorage::Blob.find_signed!(params[:id])
+
+        send_data blob.download, type: blob.content_type, disposition: "inline"
+      rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
+        render_error(message: "That scan is no longer available. Take the photo again.",
+                     code: "scan_expired", status: :not_found)
+      end
+
       # POST /api/v1/document_captures
       #
       # Params: pages[] (images) or file_id, preset, name, folder_id

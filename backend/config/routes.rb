@@ -127,6 +127,7 @@ Rails.application.routes.draw do
       resources :record_templates, only: %i[index]
       # Photograph a document, get a filled-in form back to check.
       get  "document_captures/presets", to: "document_captures#presets"
+      get  "document_captures/page/:id", to: "document_captures#page", as: :document_capture_page
       post "document_captures",         to: "document_captures#create"
 
       resources :records, only: %i[index show create update destroy] do
