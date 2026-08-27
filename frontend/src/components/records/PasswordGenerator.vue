@@ -12,6 +12,15 @@ import { copyText } from "@/utils/clipboard";
  */
 const emit = defineEmits(["use", "close"]);
 
+const props = defineProps({
+  // "Use it" is right next to a password box; on its own in Tools there is
+  // nothing to use it on, and the button is keeping it rather than applying it.
+  useLabel: { type: String, default: "Use it" },
+  // Standalone there is already a way back, and a second one reads as an
+  // unsaved change you might be discarding.
+  dismissible: { type: Boolean, default: true },
+});
+
 const mode = ref("random");
 const options = ref({ ...DEFAULTS });
 const value = ref("");
@@ -193,9 +202,10 @@ async function copy() {
         class="rounded-base bg-primary-600 px-4 py-1.5 text-body-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
         @click="emit('use', value)"
       >
-        Use it
+        {{ props.useLabel }}
       </button>
       <button
+        v-if="props.dismissible"
         type="button"
         class="rounded-base border border-gray-300 bg-white px-4 py-1.5 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
         @click="emit('close')"

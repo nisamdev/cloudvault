@@ -15,16 +15,31 @@
 module RecordTemplates
   KINDS = %w[text multiline email url phone date expiry number money reference secret].freeze
 
-  Field = Struct.new(:key, :label, :kind, :hint, keyword_init: true) do
+  # How far ahead to write about a date, in days.
+  #
+  # Not every expiry deserves an email. A subscription's next charge comes round
+  # every month and mailing about it would be noise you learn to ignore — so it
+  # shows a countdown on screen and says nothing. `remind` is what turns a date
+  # into a letter, and the gaps say how much notice the thing actually needs.
+  DEFAULT_REMINDERS = [ 42, 7 ].freeze
+  # Renewing a permit or a passport is months of work, not an afternoon's.
+  LONG_REMINDERS = [ 180, 90, 30 ].freeze
+  SHORT_REMINDERS = [ 30, 7 ].freeze
+
+  Field = Struct.new(:key, :label, :kind, :hint, :remind, keyword_init: true) do
     def secret? = kind == "secret"
     def expiry? = kind == "expiry"
 
-    def to_h = { key: key, label: label, kind: kind, hint: hint }.compact
+    # Every expiry counts down on screen; only some of them write to you.
+    def reminds? = expiry? && remind.present?
+
+    def to_h = { key: key, label: label, kind: kind, hint: hint, remind: remind }.compact
   end
 
   Template = Struct.new(:type, :label, :icon, :summary, :fields, :title_hint, keyword_init: true) do
     def field(key) = fields.find { |f| f.key == key }
     def expiry_fields = fields.select(&:expiry?)
+    def reminding_fields = fields.select(&:reminds?)
     def secret_fields = fields.select(&:secret?)
 
     def to_h
@@ -35,8 +50,16 @@ module RecordTemplates
     end
   end
 
-  def self.field(key, label, kind = "text", hint = nil)
-    Field.new(key: key, label: label, kind: kind, hint: hint)
+  # An expiry gets the default schedule unless one is named, and `remind: []`
+  # means "count it down, but do not write about it".
+  def self.field(key, label, kind = "text", hint = nil, remind: :default)
+    schedule =
+      if kind != "expiry" then nil
+      elsif remind == :default then DEFAULT_REMINDERS
+      else Array(remind).presence
+      end
+
+    Field.new(key: key, label: label, kind: kind, hint: hint, remind: schedule)
   end
 
   ALL = [
@@ -86,7 +109,7 @@ module RecordTemplates
         field("document_number", "Document number", "reference"),
         field("holder", "Held by"),
         field("issued_on", "Issued", "date"),
-        field("expires_on", "Expires", "expiry", "Reminders start six months out"),
+        field("expires_on", "Expires", "expiry", "Reminders start six months out", remind: LONG_REMINDERS),
         field("sponsor", "Sponsor or employer"),
         field("application_ref", "Application reference", "reference"),
         field("conditions", "Conditions", "multiline", "Work restrictions, no recourse to public funds…"),
@@ -124,9 +147,10 @@ module RecordTemplates
         field("full_name", "Full name"),
         field("date_of_birth", "Date of birth", "date"),
         field("passport_number", "Passport number", "reference"),
-        field("passport_expires_on", "Passport expires", "expiry"),
+        # Many countries want six months left on a passport before they let you in.
+        field("passport_expires_on", "Passport expires", "expiry", remind: LONG_REMINDERS),
         field("licence_number", "Driving licence number", "reference"),
-        field("licence_expires_on", "Licence expires", "expiry"),
+        field("licence_expires_on", "Licence expires", "expiry", remind: SHORT_REMINDERS),
         field("national_id", "National insurance / ID", "reference"),
         field("nhs_number", "NHS number", "reference"),
         field("blood_group", "Blood group"),
@@ -146,8 +170,8 @@ module RecordTemplates
         field("vin", "VIN", "reference"),
         field("bought_on", "Bought", "date"),
         field("insurance_renews_on", "Insurance renews", "expiry"),
-        field("mot_due_on", "MOT due", "expiry"),
-        field("tax_due_on", "Road tax due", "expiry"),
+        field("mot_due_on", "MOT due", "expiry", remind: SHORT_REMINDERS),
+        field("tax_due_on", "Road tax due", "expiry", remind: SHORT_REMINDERS),
         field("notes", "Notes", "multiline")
       ]
     ),
@@ -181,9 +205,11 @@ module RecordTemplates
         field("service", "Service"),
         field("cost", "Cost", "money"),
         field("billing_cycle", "Billed", "text", "Monthly, yearly…"),
-        field("next_charge_on", "Next charge", "expiry"),
+        # Comes round every month; a countdown on screen is plenty.
+        field("next_charge_on", "Next charge", "expiry", remind: []),
         field("paid_with", "Paid with", "text", "Which card or account"),
-        field("cancel_by", "Cancel by", "expiry"),
+        # This one you cannot afford to miss.
+        field("cancel_by", "Cancel by", "expiry", remind: SHORT_REMINDERS),
         field("notes", "Notes", "multiline")
       ]
     ),

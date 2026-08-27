@@ -5,6 +5,7 @@ import ScannerTool from "@/components/utilities/ScannerTool.vue";
 import PdfPagesTool from "@/components/utilities/PdfPagesTool.vue";
 import PdfSplitTool from "@/components/utilities/PdfSplitTool.vue";
 import PdfTextTool from "@/components/utilities/PdfTextTool.vue";
+import PasswordTool from "@/components/utilities/PasswordTool.vue";
 
 /**
  * Tools that act on documents rather than store them.
@@ -13,6 +14,15 @@ import PdfTextTool from "@/components/utilities/PdfTextTool.vue";
  * decisions, and they need room to show what they are about to do.
  */
 const TOOLS = [
+  {
+    key: "password",
+    name: "Make a password",
+    summary: "A strong one, made here and sent nowhere.",
+    detail: "Random characters, or words you can actually retype.",
+    icon: "fa-wand-magic-sparkles",
+    tint: "bg-primary-50 text-primary-600",
+    ready: true,
+  },
   {
     key: "scan",
     name: "Scan & make a PDF",
@@ -72,7 +82,8 @@ const open = ref(null);
       </p>
     </header>
 
-    <ScannerTool v-if="open === 'scan'" @close="open = null" />
+    <PasswordTool v-if="open === 'password'" @close="open = null" />
+    <ScannerTool v-else-if="open === 'scan'" @close="open = null" />
     <MergePdfTool v-else-if="open === 'merge'" @close="open = null" />
     <PdfPagesTool v-else-if="open === 'pages'" @close="open = null" />
     <PdfSplitTool v-else-if="open === 'split'" @close="open = null" />
