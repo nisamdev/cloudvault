@@ -40,11 +40,12 @@ module Api
 
         return render_role_error("The owner cannot be removed from the family.") if member.owner?
 
-        # Their files stay: they belong to the family, and removing a person
-        # should not silently delete the passports they scanned. What changes is
-        # that they can no longer reach them.
-        member.destroy!
-        head :no_content
+        # What they shared stays with the family and becomes the owner's: a
+        # departing person must not take the passports they scanned, and must
+        # not keep the keys to them either.
+        summary = FamilyDeparture.new(member).call
+
+        render json: { kept: summary.to_h }
       end
 
       private

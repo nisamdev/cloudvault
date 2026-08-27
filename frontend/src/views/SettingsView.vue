@@ -372,20 +372,39 @@ async function changeRole(member, role) {
   }
 }
 
+/** What the family kept when somebody left, in words rather than a count. */
+function keptLabel(kept) {
+  if (!kept) return undefined;
+
+  const parts = [
+    [kept.files, "file", "files"],
+    [kept.records, "record", "records"],
+    [kept.folders, "folder", "folders"],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+
+  if (!parts.length) return "They had shared nothing with the family.";
+
+  return `${parts.join(", ")} they shared are now yours.`;
+}
+
 async function removeMember(member) {
   const ok = await dialog.confirm({
     title: `Remove ${member.user.full_name}?`,
-    message: "They lose access to everything the family has shared.",
-    detail: "Files they uploaded stay in the vault.",
+    message: "They lose access to everything the family shares, straight away.",
+    detail:
+      "Anything they shared with the family stays and becomes yours — the passports they " +
+      "scanned do not leave with them. Their own private files stay theirs.",
     confirmLabel: "Remove",
     danger: true,
   });
   if (!ok) return;
 
   try {
-    await api.delete(`/families/${auth.family.id}/members/${member.id}`);
+    const { data } = await api.delete(`/families/${auth.family.id}/members/${member.id}`);
     members.value = members.value.filter((m) => m.id !== member.id);
-    toast.show({ message: "Member removed", detail: member.user.full_name });
+    toast.show({ message: `${member.user.full_name} removed`, detail: keptLabel(data?.kept) });
   } catch (e) {
     error.value = e.userMessage;
   }
@@ -862,7 +881,9 @@ async function removeMember(member) {
               </span>
 
               <template v-else>
-                <label :for="`role-${member.id}`" class="sr-only">Role for {{ member.user.full_name }}</label>
+                <label :for="`role-${member.id}`" class="sr-only">
+                  What {{ member.user.full_name }} may do
+                </label>
                 <select
                   :id="`role-${member.id}`"
                   :value="member.role"
@@ -891,13 +912,17 @@ async function removeMember(member) {
                   Family access
                 </label>
 
+                <!-- Was a bare icon, sitting after a dropdown and a tick box,
+                     and read as decoration. Taking somebody out of the family
+                     is the strongest thing on this row and has to be findable
+                     by the word for it. -->
                 <button
                   type="button"
-                  class="rounded-md p-2 text-error-500 transition hover:bg-error-50"
-                  :aria-label="`Remove ${member.user.full_name}`"
+                  class="shrink-0 rounded-base border border-gray-300 px-3 py-2 text-body-sm font-medium text-gray-700 transition hover:border-error-100 hover:bg-error-50 hover:text-error-600"
                   @click="removeMember(member)"
                 >
-                  <i class="fas fa-user-minus" aria-hidden="true"></i>
+                  <i class="fas fa-user-minus mr-1.5 text-error-500" aria-hidden="true"></i>
+                  Remove
                 </button>
               </template>
             </li>

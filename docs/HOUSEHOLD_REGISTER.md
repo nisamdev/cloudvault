@@ -506,6 +506,31 @@ And the attached PDFs have a download button on the record itself. It is always
 visible rather than appearing on hover, because half the family reads this on a
 phone.
 
+### Being taken out of a family
+
+Removal is its own button beside the vault switch, labelled with the word for
+it — it was a bare red icon sitting after a dropdown and a tick box, and read
+as decoration.
+
+What somebody leaves behind follows one rule: **what they shared with the
+household stays with the household and stops being theirs; what they kept
+private stays entirely theirs.** Nothing is deleted either way.
+
+The second half of that was missing, and the code comment claimed otherwise.
+"What changes is that they can no longer reach them" was simply false: a
+removed person still *owned* everything they had shared, so they went on being
+able to see it, rename it, unshare it, share it back, and delete it — from
+outside the family that depended on it. Ownership of the shared half now passes
+to whoever owns the family, along with their family folders, and any grant
+standing in their name on this family's things is revoked. Their `current_family`
+stops pointing at a family they are not in.
+
+One thing this cannot fix, and does not pretend to: a record secret is sealed
+with the vault key of whoever wrote it, so a record changing hands does not make
+its password readable by the new owner. It never was readable by anybody else —
+`FamilyDeparture` counts those rather than implying otherwise. Shared family
+credentials that more than one person can actually open wait on Step 11.
+
 ### Being invited when you already have an account
 
 An invitation used to exist only as a link in an email. Somebody who already
