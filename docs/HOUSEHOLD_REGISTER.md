@@ -327,9 +327,19 @@ The pages become a PDF, which is both what gets attached to the record and what
 gets read. One artefact, so the thing kept is exactly the thing that was read,
 and it is already in the format you would send to somebody.
 
+**From the phone, the same way files are scanned.** The register has its own QR
+code. The phone opens it, asks which document this is, photographs it, and the
+desktop opens a filled-in form with the scan already attached — polled through
+the same receipt the file scan uses.
+
+One thing that had to change: the phone's "document" style lifts contrast with a
+histogram stretch, which makes a photo easier for a person to read and clips a
+crisp page to the point where tesseract sees nothing. Pages being *kept* still
+get the treatment; pages being *read* are left alone.
+
 `DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,HealthCard}`,
-`DocumentReader`, `POST /document_captures`. Still to do: the screen that picks
-a preset, shows the suggestion and saves the record with the scan attached.
+`DocumentReader`, `POST /document_captures`, and `purpose` on the scan
+session.
 
 ## Still open, outside the numbered steps
 

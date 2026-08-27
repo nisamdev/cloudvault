@@ -113,7 +113,9 @@ class JwtService
 
     # Upload-only credential for the phone capture page. Carries where the
     # documents should land so the phone needs no further input.
-    def encode_scan(user_id:, folder_id:, visibility:, expires_in:)
+    # `purpose` decides what the phone is being asked for: pages to keep as
+    # files, or a document to read into a register entry.
+    def encode_scan(user_id:, folder_id:, visibility:, expires_in:, purpose: "files", preset: nil)
       now = Time.current
 
       JWT.encode(
@@ -122,6 +124,8 @@ class JwtService
           typ: "scan",
           folder_id: folder_id,
           visibility: visibility,
+          purpose: purpose,
+          preset: preset,
           iat: now.to_i,
           exp: (now + expires_in).to_i,
           jti: SecureRandom.uuid

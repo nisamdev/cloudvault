@@ -68,6 +68,36 @@ const breadcrumbs = computed(() => [
   { label: template.value?.label ?? "…" },
 ]);
 
+/**
+ * Fields read off a scanned document, waiting to be checked.
+ *
+ * They arrive as a suggestion, never as a saved record: the scan fills the form
+ * in and a person decides whether it is right.
+ */
+const fromScan = ref(null);
+
+function applyScan(template) {
+  const raw = route.query.from_scan;
+  if (!raw) return;
+
+  try {
+    const suggestion = JSON.parse(raw);
+    fromScan.value = suggestion;
+
+    Object.entries(suggestion.fields ?? {}).forEach(([key, value]) => {
+      if (template.fields.some((f) => f.key === key)) form.value.data[key] = value;
+    });
+
+    if (suggestion.title && showTitleField.value) form.value.title = suggestion.title;
+    if (suggestion.file?.id) attachmentIds.value = [suggestion.file.id];
+  } catch {
+    // A malformed hand-off should leave an empty form, not a broken screen.
+  }
+}
+
+/** Fields the document itself vouches for, by check digit or by agreeing twice. */
+const confirmedByDocument = computed(() => new Set(fromScan.value?.verified ?? []));
+
 onMounted(async () => {
   try {
     const { data } = await api.get("/record_templates");
@@ -83,6 +113,8 @@ onMounted(async () => {
     form.value.secrets = Object.fromEntries(
       match.fields.filter((f) => f.kind === "secret").map((f) => [f.key, ""]),
     );
+
+    applyScan(match);
   } catch (e) {
     error.value = e.userMessage;
   } finally {
@@ -241,6 +273,23 @@ async function save() {
           {{ error }}
         </p>
 
+        <!-- Read off a scan. Nothing is saved until it has been looked at. -->
+        <div
+          v-if="fromScan"
+          class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-base border border-primary-200 bg-primary-50 px-4 py-3 text-body-sm text-primary-800"
+        >
+          <span>
+            <i class="fas fa-wand-magic-sparkles mr-1.5" aria-hidden="true"></i>
+            Filled in from your scan — check it and save.
+          </span>
+          <span v-if="confirmedByDocument.size" class="text-caption text-primary-700">
+            {{ confirmedByDocument.size }} of these the document confirms itself.
+          </span>
+          <span v-if="fromScan.file" class="text-caption text-primary-700">
+            The scan is attached.
+          </span>
+        </div>
+
         <div class="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div class="min-w-0 space-y-6">
             <!-- Short facts pair up; prose gets a row to itself. -->
@@ -272,7 +321,14 @@ async function save() {
                     ['reference', 'number'].includes(field.kind) ? 'font-mono' : '',
                   ]"
                 />
-                <p v-if="field.hint" class="mt-1 text-caption text-gray-500">{{ field.hint }}</p>
+                <p
+                  v-if="confirmedByDocument.has(field.key)"
+                  class="mt-1 text-caption text-success-700"
+                >
+                  <i class="fas fa-check mr-1" aria-hidden="true"></i>Read from the document's own
+                  check digits
+                </p>
+                <p v-else-if="field.hint" class="mt-1 text-caption text-gray-500">{{ field.hint }}</p>
               </div>
             </div>
 

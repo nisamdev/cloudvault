@@ -27,11 +27,19 @@ module Api
                               code: "forbidden", status: :forbidden)
         end
 
+        purpose = params[:purpose] == "record" ? "record" : "files"
+        if purpose == "record" && params[:preset].present? && !DocumentPresets.exists?(params[:preset])
+          return render_error(message: "Pick what kind of document this is.",
+                              code: "unknown_preset", status: :unprocessable_content)
+        end
+
         session = ScanSession.create(
           user: current_user,
           folder_id: folder&.id,
           visibility: visibility,
-          base_url: frontend_origin
+          base_url: frontend_origin,
+          purpose: purpose,
+          preset: params[:preset].presence
         )
 
         render json: session.to_h.merge(qr_svg: session.qr_svg), status: :created
@@ -41,6 +49,11 @@ module Api
       def show
         render json: {
           valid: true,
+          purpose: @session.purpose,
+          preset: @session.preset,
+          # The phone offers these when it is being asked for a document rather
+          # than for pages to keep.
+          presets: @session.for_record? ? DocumentPresets::ALL.map(&:to_h) : nil,
           expires_at: @session.expires_at,
           destination: {
             folder: folder_name,
@@ -72,24 +85,36 @@ module Api
                               code: "too_many_pages", status: :unprocessable_content)
         end
 
-        scanner = DocumentScanner.new(mode: params[:style].presence || "document")
+        # A page that is going to be *read* is left alone. Document mode lifts
+        # contrast with a histogram stretch, which makes a photo legible to a
+        # person and — on an already-crisp page — clips it to the point where
+        # tesseract sees nothing at all. Pages being kept still get the
+        # treatment; pages being read do not.
+        style = @session.for_record? ? "colour" : (params[:style].presence || "document")
+        scanner = DocumentScanner.new(mode: style)
         processed = pages.map { |page| scanner.process(page.read) }
 
-        stored = if params[:mode] == "images"
-                   store_as_images(processed, pages)
-                 else
+        stored = if @session.for_record?
+                   # A document is always one PDF: it is what gets attached to
+                   # the record and what gets read for its fields.
                    store_as_pdf(processed)
-                 end
+        elsif params[:mode] == "images"
+                   store_as_images(processed, pages)
+        else
+                   store_as_pdf(processed)
+        end
 
         files = Array(stored)
+        suggestion = @session.for_record? ? read_document(files.first) : nil
         # Leaves a receipt the desktop polls for, so the QR dialog knows when
         # the phone has finished.
-        @session.record_upload(files)
+        @session.record_upload(files, suggestion: suggestion)
 
         render json: {
           files: files.map { |file| { id: file.id, name: file.name, size: file.size } },
-          page_count: processed.size
-        }, status: :created
+          page_count: processed.size,
+          suggestion: suggestion
+        }.compact, status: :created
       rescue FileUploader::QuotaExceeded => e
         render_error(message: e.message, code: "quota_exceeded", status: :content_too_large)
       rescue FileUploader::Error => e
@@ -97,6 +122,27 @@ module Api
       end
 
       private
+
+      # Reads the scan the phone just sent, so the desktop has something to check
+      # rather than an empty form.
+      def read_document(file)
+        return nil if file.nil?
+
+        preset = params[:preset].presence || @session.preset.presence || "other"
+        bytes = file.attachment.download
+        extracted = PdfTextExtractor.new(bytes).call
+        text = extracted.any_text? ? extracted.text : PdfOcr.new(bytes).call.text
+
+        DocumentReader.new(text, preset).call.to_h.merge(
+          file: { id: file.id, name: file.name, size: file.size },
+          found_text: text.present?
+        )
+      rescue StandardError => e
+        # A document that cannot be read still gets kept; the desktop opens an
+        # empty form instead of nothing at all.
+        Rails.logger.error("[scan] could not read: #{e.class}: #{e.message}")
+        nil
+      end
 
       MAX_PAGES = 30
 

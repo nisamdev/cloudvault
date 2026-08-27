@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import api from "@/api/client";
 import RecordIcon from "@/components/records/RecordIcon.vue";
+import ScanModal from "@/components/files/ScanModal.vue";
 import { siteDomain } from "@/utils/recordIcon";
 import { recordTypeAccent, recordTypeTint } from "@/utils/recordType";
 import { expiryState, formatRecordDate } from "@/utils/recordDate";
@@ -12,6 +14,7 @@ const loading = ref(true);
 const error = ref("");
 const search = ref("");
 const typeFilter = ref("");
+const scanning = ref(false);
 
 const filtered = computed(() => {
   const term = search.value.trim().toLowerCase();
@@ -32,6 +35,29 @@ const filtered = computed(() => {
 });
 
 const loginCount = computed(() => records.value.filter((r) => r.record_type === "login").length);
+
+const router = useRouter();
+
+/**
+ * The phone has read a document and left the fields behind. Open the form it
+ * filled in, with the scan already attached — nothing is saved until it has
+ * been looked at.
+ */
+function onScanned(receipt) {
+  scanning.value = false;
+
+  const suggestion = receipt?.suggestion;
+  if (!suggestion) {
+    load();
+    return;
+  }
+
+  router.push({
+    name: "record-create",
+    params: { type: suggestion.record_type || "other" },
+    query: { from_scan: JSON.stringify(suggestion) },
+  });
+}
 
 onMounted(load);
 
@@ -102,6 +128,14 @@ function recordSubtitle(record) {
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="rounded-base border border-gray-300 bg-white px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+          @click="scanning = true"
+        >
+          <i class="fas fa-qrcode mr-1.5" aria-hidden="true"></i>
+          Scan a document
+        </button>
         <RouterLink
           :to="{ name: 'record-create', params: { type: 'login' } }"
           class="rounded-base border border-primary-200 bg-primary-50 px-4 py-2 text-body-sm font-medium text-primary-700 transition hover:bg-primary-100"
@@ -230,5 +264,12 @@ function recordSubtitle(record) {
         </RouterLink>
       </li>
     </ul>
+
+    <ScanModal
+      v-if="scanning"
+      purpose="record"
+      @uploaded="onScanned"
+      @close="scanning = false"
+    />
   </section>
 </template>

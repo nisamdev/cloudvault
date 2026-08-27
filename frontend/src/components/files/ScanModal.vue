@@ -6,6 +6,9 @@ import { useLibraryStore } from "@/stores/library";
 const props = defineProps({
   folderId: { type: [Number, String], default: null },
   visibility: { type: String, default: "private" },
+  // "files" keeps the pages; "record" reads the document into a register entry.
+  purpose: { type: String, default: "files" },
+  preset: { type: String, default: "" },
 });
 const emit = defineEmits(["close", "uploaded"]);
 
@@ -27,6 +30,8 @@ async function createSession() {
     const { data } = await api.post("/scans", {
       folder_id: props.folderId || undefined,
       visibility: props.visibility,
+      purpose: props.purpose,
+      preset: props.preset || undefined,
     });
     session.value = data;
     startPolling();

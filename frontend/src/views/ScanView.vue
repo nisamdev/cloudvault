@@ -16,17 +16,24 @@ const done = ref(null);
 const mode = ref("pdf");
 const style = ref("document");
 const name = ref("");
+const preset = ref("");
 
 const cameraInput = ref(null);
 const libraryInput = ref(null);
 
 const token = computed(() => route.params.token);
+
+/** Pages to keep, or a document to read into a register entry. */
+const forRecord = computed(() => session.value?.purpose === "record");
+const presets = computed(() => session.value?.presets ?? []);
+const chosenPreset = computed(() => presets.value.find((p) => p.key === preset.value) ?? null);
 const totalBytes = computed(() => pages.value.reduce((sum, p) => sum + p.file.size, 0));
 
 async function load() {
   try {
     const { data } = await api.get(`/scans/${token.value}`);
     session.value = data;
+    preset.value = data.preset || "";
   } catch (e) {
     error.value = e.userMessage;
   } finally {
@@ -71,8 +78,9 @@ async function upload() {
 
   const form = new FormData();
   pages.value.forEach((page) => form.append("pages[]", page.file));
-  form.append("mode", mode.value);
+  form.append("mode", forRecord.value ? "pdf" : mode.value);
   form.append("style", style.value);
+  if (forRecord.value && preset.value) form.append("preset", preset.value);
   if (name.value.trim()) form.append("name", name.value.trim());
 
   try {
@@ -98,6 +106,8 @@ async function upload() {
 function scanMore() {
   done.value = null;
   name.value = "";
+  // Keep the kind of document: the next one is usually the other side of the
+  // same card, or another of the same sort.
 }
 
 onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url)));
@@ -109,7 +119,9 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
       <div class="mx-auto flex max-w-lg items-center gap-3">
         <i class="fas fa-cloud text-xl" aria-hidden="true"></i>
         <div class="min-w-0">
-          <h1 class="text-h4 font-bold">Scan to CloudVault</h1>
+          <h1 class="text-h4 font-bold">
+            {{ forRecord ? "Scan a document" : "Scan to CloudVault" }}
+          </h1>
           <p v-if="session" class="truncate text-caption text-white/80">
             {{ session.account }} · {{ session.destination.folder }}
             <span v-if="session.destination.visibility === 'family'"> · shared with family</span>
@@ -138,7 +150,13 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
       <!-- Finished -->
       <div v-else-if="done" class="rounded-xl bg-white p-8 text-center shadow-sm">
         <i class="fas fa-circle-check text-4xl text-success-500" aria-hidden="true"></i>
-        <h2 class="mt-4 text-h3 font-semibold text-gray-800">Saved to CloudVault</h2>
+        <h2 class="mt-4 text-h3 font-semibold text-gray-800">
+          {{ done.suggestion ? "Read and sent to your computer" : "Saved to CloudVault" }}
+        </h2>
+        <p v-if="done.suggestion" class="mt-2 text-body text-gray-600">
+          {{ Object.keys(done.suggestion.fields || {}).length }} detail(s) found.
+          Check them on your computer and save.
+        </p>
         <ul class="mt-3 space-y-1">
           <li v-for="file in done.files" :key="file.id" class="text-body text-gray-600">
             {{ file.name }} · {{ formatFileSize(file.size) }}
@@ -163,6 +181,50 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
         >
           {{ error }}
         </p>
+
+        <!-- A document scan starts by asking what the document is. That one
+             answer is what lets the fields be read off it afterwards. -->
+        <section v-if="forRecord && !preset" class="mb-4">
+          <h2 class="mb-2 text-label font-medium uppercase tracking-wide text-gray-500">
+            What are you scanning?
+          </h2>
+          <ul class="space-y-2">
+            <li v-for="option in presets" :key="option.key">
+              <button
+                type="button"
+                class="flex w-full items-center gap-3 rounded-xl bg-white p-4 text-left shadow-sm transition active:scale-95"
+                @click="preset = option.key"
+              >
+                <i :class="['fas w-5 text-center text-primary-600', option.icon]" aria-hidden="true"></i>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-body font-semibold text-gray-800">{{ option.label }}</span>
+                  <span class="block text-caption leading-snug text-gray-500">{{ option.hint }}</span>
+                </span>
+                <i class="fas fa-chevron-right text-gray-300" aria-hidden="true"></i>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <template v-else>
+        <!-- What was chosen, and how to photograph it. -->
+        <div
+          v-if="forRecord && chosenPreset"
+          class="mb-4 flex items-start gap-3 rounded-xl bg-white p-4 shadow-sm"
+        >
+          <i :class="['fas mt-0.5 text-primary-600', chosenPreset.icon]" aria-hidden="true"></i>
+          <div class="min-w-0 flex-1">
+            <p class="text-body font-semibold text-gray-800">{{ chosenPreset.label }}</p>
+            <p class="text-caption leading-snug text-gray-500">{{ chosenPreset.hint }}</p>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 text-body-sm font-medium text-primary-600"
+            @click="preset = ''"
+          >
+            Change
+          </button>
+        </div>
 
         <!-- Capture buttons. `capture` opens the camera straight away, which is
              what makes this work without an app. -->
@@ -264,7 +326,7 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
               />
             </div>
 
-            <div>
+            <div v-if="!forRecord">
               <span class="mb-1 block text-body-sm font-medium text-gray-700">Save as</span>
               <div class="grid grid-cols-2 gap-2">
                 <button
@@ -315,8 +377,14 @@ onBeforeUnmount(() => pages.value.forEach((page) => URL.revokeObjectURL(page.url
         </section>
 
         <p v-else class="mt-8 text-center text-body text-gray-500">
-          Photograph each page. You can reorder or remove them before saving.
+          <template v-if="forRecord">
+            Photograph the document. Take more than one page if it has them.
+          </template>
+          <template v-else>
+            Photograph each page. You can reorder or remove them before saving.
+          </template>
         </p>
+        </template>
       </template>
     </main>
 
