@@ -336,6 +336,32 @@ async function revokeInvitation(invitation) {
   }
 }
 
+/**
+ * Whether the family's own things are open to this person.
+ *
+ * Separate from their role, which says what they may *do* with them. A
+ * household answers this person by person — the teenager trusted with the wifi
+ * password and not with the mortgage — and nobody's private section is
+ * affected either way.
+ */
+async function setVaultAccess(member, canUse) {
+  try {
+    const { data } = await api.patch(`/families/${auth.family.id}/members/${member.id}`, {
+      can_use_vault: canUse,
+    });
+    members.value = members.value.map((m) => (m.id === member.id ? data.member : m));
+
+    const name = data.member.user.full_name || data.member.user.email;
+    toast.show({
+      message: canUse
+        ? `${name} can reach the family's things`
+        : `${name} no longer reaches the family's things`,
+    });
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
 async function changeRole(member, role) {
   try {
     const { data } = await api.patch(`/families/${auth.family.id}/members/${member.id}`, { role });
@@ -522,7 +548,7 @@ async function removeMember(member) {
               </button>
             </div>
 
-            <ul class="mt-5 space-y-2">
+          <ul class="mt-5 space-y-2">
               <li
                 v-for="session in sessions"
                 :key="session.id"
@@ -782,6 +808,13 @@ async function removeMember(member) {
             <template v-else>Only an admin can change roles or remove members.</template>
           </p>
 
+          <p v-if="canManage" class="mt-4 rounded-base bg-gray-50 px-4 py-3 text-caption text-gray-600">
+            <strong class="font-medium text-gray-700">Family access</strong> is whether somebody
+            reaches the family's shared records and files at all — their role decides what they may
+            do once they are in. Everybody's own private section is theirs regardless: nobody sees
+            inside it without the passphrase, not even you.
+          </p>
+
           <ul class="mt-5 space-y-2">
             <li
               v-for="member in members"
@@ -803,6 +836,16 @@ async function removeMember(member) {
                 <p class="truncate text-caption text-gray-500">{{ member.user.email }}</p>
               </div>
 
+              <!-- Shut out of the family's things, but still in the family:
+                   worth saying on the row rather than only in the switch. -->
+              <span
+                v-if="!member.can_use_vault"
+                class="rounded-full bg-warning-50 px-3 py-1 text-caption font-medium text-warning-600"
+                :title="member.vault_note || 'No access to the family\'s records and files'"
+              >
+                <i class="fas fa-lock mr-1" aria-hidden="true"></i>No family access
+              </span>
+
               <span
                 v-if="member.role === 'owner' || !canManage"
                 class="rounded-full bg-gray-100 px-3 py-1 text-caption font-semibold capitalize text-gray-600"
@@ -822,6 +865,23 @@ async function removeMember(member) {
                   <option value="editor">Editor</option>
                   <option value="viewer">Viewer</option>
                 </select>
+
+                <label
+                  class="flex cursor-pointer items-center gap-2 text-body-sm text-gray-700"
+                  :title="
+                    member.can_use_vault
+                      ? 'Turn off to shut them out of the family\'s records and files'
+                      : 'Turn on to open the family\'s records and files to them'
+                  "
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded accent-primary-600"
+                    :checked="member.can_use_vault"
+                    @change="setVaultAccess(member, $event.target.checked)"
+                  />
+                  Family access
+                </label>
 
                 <button
                   type="button"

@@ -124,7 +124,8 @@ class UpcomingExpiries
     end
 
     def readable_record_ids(user)
-      family_ids = FamilyMember.where(user_id: user.id).pluck(:family_id)
+      # Nobody is written to about a date on a record they can no longer open.
+      family_ids = user.vault_family_ids
 
       VaultRecord.where(user_id: user.id)
                  .or(VaultRecord.where(visibility: "family", family_id: family_ids))

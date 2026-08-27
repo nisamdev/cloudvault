@@ -17,6 +17,16 @@ class User < ApplicationRecord
   has_many :signatures, dependent: :destroy
   has_many :family_memberships, class_name: "FamilyMember", dependent: :destroy
   has_many :families, through: :family_memberships, source: :family
+
+  # The families whose *shared* things are open to this person.
+  #
+  # Somebody the owner has shut out of the vault is still in the family — they
+  # keep their own records and their own private section, and they simply reach
+  # nothing through the family. Every grant that arrives by way of a family
+  # passes through here.
+  def vault_family_ids
+    family_memberships.select(&:can_use_vault?).map(&:family_id)
+  end
   belongs_to :current_family, class_name: "Family", optional: true
   has_many :access_grants, as: :subject, dependent: :destroy
   has_many :owned_families, class_name: "Family", foreign_key: :owner_id,

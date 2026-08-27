@@ -239,10 +239,30 @@ Family settings:
 
 ```
 family_members
-  role            string   — owner | editor | viewer  (already exists)
-  can_use_vault   boolean  — defaults: owner ✓  editor ✓  viewer ✗
+  role            string   — owner | admin | editor | viewer  (already exists)
+  can_use_vault   boolean  — NULL means open; the owner writes false to shut it
   vault_note      string   — why it was turned off, for the owner's memory
 ```
+
+**The default changed while building it.** The plan said viewers start shut
+out. But `viewer` is a role whose whole purpose is to see family content
+without changing it, and a viewer who cannot view is a contradiction — five
+existing specs said so before any of this was written. The role already says
+how much somebody may do; this says whether they are in the room at all. So it
+is a door rather than a rank: unset means open, and the owner shuts it for the
+person they mean to shut it for. The column is nullable so an unset switch
+stays unset, and a decision that was actually made outlives a later change of
+role.
+
+The owner cannot be shut out — somebody has to be able to open the door again.
+
+**A permission check that disagrees with the list beside it is the whole bug.**
+`can_view?` was gated first, and the listings still showed everything: they
+build their own SQL from `family_ids` rather than asking. Records, files, the
+trash and the reminder digest all read `vault_family_ids` now, which is the
+same question `AccessGrant.for_subjects` asks. A grant made to somebody *by
+name* still reaches them: being shut out of the shared vault is not the same as
+being shut out of what was handed to you.
 
 **Two things that are easy to confuse.** Your own private section is yours alone;
 nobody sees inside it without your passphrase — not the owner, not an admin, not
@@ -489,7 +509,7 @@ phone.
 | 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | **Done** (2026-08-27) |
 | 5 | The generator ✅ — in every secret field, and standalone in Tools | half a day | **Done** (2026-08-27) |
 | 6 | Expiry reminders ✅ — nightly digest, per-person settings | 1–2 days | **Done** (2026-08-27) |
-| 7 | Who can use the vault — the per-person switch | half a day | |
+| 7 | Who can use the vault — the per-person switch ✅ | half a day | **Done** (2026-08-27) |
 | 8 | Short-term sharing — expiring grants, burn-after-reading links | 2 days | |
 | 9 | TOTP on login | 1 day | |
 | 10 | TLS for phone access | half a day | |

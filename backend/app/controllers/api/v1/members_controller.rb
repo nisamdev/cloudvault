@@ -10,14 +10,27 @@ module Api
       # PATCH /api/v1/families/:family_id/members/:id
       def update
         member = @family.family_members.find(params[:id])
-        role = params[:role].to_s
 
-        return render_role_error("That is not a role.") unless FamilyMember::ROLES.include?(role)
-        # Ownership is not a role you hand out; it decides who the family
-        # belongs to, and the model only permits one.
-        return render_role_error("Ownership cannot be reassigned here.") if role == "owner" || member.owner?
+        # Two separate decisions, and a request may carry either or both: what
+        # somebody may do with the family's things, and whether they reach them
+        # at all.
+        set_vault_access(member) if params.key?(:can_use_vault)
+        return if performed?
 
-        member.update!(role: role)
+        if params.key?(:role)
+          role = params[:role].to_s
+
+          return render_role_error("That is not a role.") unless FamilyMember::ROLES.include?(role)
+          # Ownership is not a role you hand out; it decides who the family
+          # belongs to, and the model only permits one.
+          if role == "owner" || member.owner?
+            return render_role_error("Ownership cannot be reassigned here.")
+          end
+
+          member.role = role
+        end
+
+        member.save!
         render json: { member: serialize(member) }
       end
 
@@ -54,10 +67,25 @@ module Api
         render_error(message: message, code: "invalid_role", status: :unprocessable_content)
       end
 
+      # The owner is the one person who cannot be shut out: somebody has to be
+      # able to open the door again.
+      def set_vault_access(member)
+        if member.owner?
+          render_role_error("The owner always has the family's things.")
+          return
+        end
+
+        member.can_use_vault = ActiveModel::Type::Boolean.new.cast(params[:can_use_vault])
+        member.vault_note = params[:vault_note].to_s.strip.presence if params.key?(:vault_note)
+      end
+
       def serialize(member)
         {
           id: member.id,
           role: member.role,
+          can_use_vault: member.can_use_vault?,
+          vault_access_decided: member.vault_access_decided?,
+          vault_note: member.vault_note,
           joined_at: member.joined_at,
           user: {
             id: member.user_id,

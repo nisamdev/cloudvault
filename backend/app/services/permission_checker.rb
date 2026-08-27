@@ -85,6 +85,14 @@ class PermissionChecker
       member_with_role?(user, family.id, FamilyMember::EDITOR_ROLES)
     end
 
+    # Whether the family's shared half is open to this person at all. Every
+    # family-shaped answer above is gated on it.
+    def uses_vault?(user, family_id)
+      return false if user.nil? || family_id.nil?
+
+      FamilyMember.find_by(family_id: family_id, user_id: user.id)&.can_use_vault? || false
+    end
+
     private
 
     def owner?(user, file)
@@ -138,16 +146,19 @@ class PermissionChecker
       grant.editor? && capped ? :editor : :viewer
     end
 
+    # Being in the family is not the same as the family's things being open to
+    # you: the owner can shut somebody out without removing them.
     def family_member?(user, family_id)
       return false if user.nil? || family_id.nil?
 
-      FamilyMember.exists?(family_id: family_id, user_id: user.id)
+      uses_vault?(user, family_id)
     end
 
     def member_with_role?(user, family_id, roles)
       return false if user.nil? || family_id.nil?
 
-      FamilyMember.exists?(family_id: family_id, user_id: user.id, role: roles)
+      FamilyMember.exists?(family_id: family_id, user_id: user.id, role: roles) &&
+        uses_vault?(user, family_id)
     end
   end
 end

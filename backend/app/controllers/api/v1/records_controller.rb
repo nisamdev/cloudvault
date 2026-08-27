@@ -118,7 +118,9 @@ module Api
 
       def visible_records
         own = VaultRecord.where(user_id: current_user.id)
-        return own unless current_family
+        # A listing has to ask exactly what the permission check asks, or a
+        # door the owner shut still shows what is behind it.
+        return own unless current_family && current_user.vault_family_ids.include?(current_family.id)
 
         own.or(VaultRecord.where(family_id: current_family.id, visibility: "family"))
       end

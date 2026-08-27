@@ -19,9 +19,11 @@ class AccessGrant < ApplicationRecord
   scope :live, -> { where(expires_at: nil).or(where(expires_at: Time.current..)) }
 
   def self.for_subjects(user)
-    # A family grant reaches every member, so both identities are looked up at
-    # once — one query instead of one per family.
-    live.where(subject: user).or(live.where(subject_type: "Family", subject_id: user.family_ids))
+    # A family grant reaches every member the vault is open to, so both
+    # identities are looked up at once — one query instead of one per family.
+    # Somebody named directly is still reached: being shut out of the shared
+    # vault is not the same as being shut out of what was handed to them.
+    live.where(subject: user).or(live.where(subject_type: "Family", subject_id: user.vault_family_ids))
   end
 
   def editor? = role == "editor"

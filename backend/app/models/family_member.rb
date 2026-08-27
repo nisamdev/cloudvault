@@ -22,6 +22,23 @@ class FamilyMember < ApplicationRecord
   def can_manage_family? = ADMIN_ROLES.include?(role)
   def owner? = role == "owner"
 
+  # Whether the family's own things are open to this person at all.
+  #
+  # Unset means yes, for everybody — including a viewer, whose whole role is to
+  # see family content without changing it. The plan had this defaulting off
+  # for viewers, but a viewer who cannot view is a contradiction and it is the
+  # role, not the switch, that already says how much somebody may do.
+  #
+  # So this is a door, not a rank: shut it for the person you mean to shut it
+  # for. Their private section is untouched either way — nobody sees inside
+  # that without the passphrase.
+  def can_use_vault?
+    can_use_vault.nil? || can_use_vault
+  end
+
+  # Whether the answer above was chosen or merely inherited.
+  def vault_access_decided? = !can_use_vault.nil?
+
   private
 
   def single_owner_per_family

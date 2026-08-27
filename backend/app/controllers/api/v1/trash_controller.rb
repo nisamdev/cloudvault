@@ -34,7 +34,7 @@ module Api
       def visible_files
         mine = StoredFile.where(user_id: current_user.id)
 
-        family_ids = current_user.family_ids
+        family_ids = current_user.vault_family_ids
         if family_ids.any?
           mine = mine.or(StoredFile.where(family_id: family_ids, visibility: %w[family shared_link]))
         end
@@ -48,7 +48,7 @@ module Api
 
       def trashed_folders_for(user)
         scope = Folder.where.not(trashed_at: nil).where(user_id: user.id)
-        family_ids = user.family_ids
+        family_ids = user.vault_family_ids
         return scope if family_ids.empty?
 
         scope.or(Folder.where.not(trashed_at: nil).where(family_id: family_ids))

@@ -139,6 +139,9 @@ module Api
         {
           id: member.id,
           role: member.role,
+          can_use_vault: member.can_use_vault?,
+          vault_access_decided: member.vault_access_decided?,
+          vault_note: member.vault_note,
           joined_at: member.joined_at,
           user: {
             id: member.user_id,
