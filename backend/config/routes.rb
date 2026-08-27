@@ -125,6 +125,10 @@ Rails.application.routes.draw do
 
       # --- Household register -----------------------------------------------
       resources :record_templates, only: %i[index]
+      # Photograph a document, get a filled-in form back to check.
+      get  "document_captures/presets", to: "document_captures#presets"
+      post "document_captures",         to: "document_captures#create"
+
       resources :records, only: %i[index show create update destroy] do
         get "secrets/:key/reveal", to: "record_secrets#reveal"
         get "secrets/:key/history", to: "record_secrets#history"

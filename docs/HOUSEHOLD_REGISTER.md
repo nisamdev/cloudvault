@@ -299,6 +299,38 @@ build, and once the extension holds the key that stops being a promise.
 
 ---
 
+## Scanning a document into a record
+
+Photograph a passport, pick what it is, and get a filled-in form to check. No
+model involved, and none needed.
+
+**You say what the document is.** That single choice removes the hardest part —
+working out what a document is from its text — and leaves the part machines are
+good at: pulling known fields out of a known shape.
+
+**The documents worth filing are machine-readable by design.** A passport or a
+residence permit carries a machine-readable zone: fixed columns and *check
+digits*. It can be parsed exactly and then verified, so the document itself says
+whether it was read correctly. A UK licence number encodes the surname, birth
+date and sex of the holder, so the card carries its own second opinion. An NHS
+number has a modulus-11 check digit. An LLM would be less accurate here, and
+could not check itself.
+
+Proved on a photographed page with no text layer: tesseract misread `UTO` as
+`UT0`, and the check digits still produced the right date of birth.
+
+**It suggests; it never files.** Everything comes back as a form to confirm. That
+means imperfect reading is still worth having — correcting two fields beats
+typing eleven — and a wrong guess is never quietly saved.
+
+The pages become a PDF, which is both what gets attached to the record and what
+gets read. One artefact, so the thing kept is exactly the thing that was read,
+and it is already in the format you would send to somebody.
+
+`DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,HealthCard}`,
+`DocumentReader`, `POST /document_captures`. Still to do: the screen that picks
+a preset, shows the suggestion and saves the record with the scan attached.
+
 ## Still open, outside the numbered steps
 
 - **The design pass stopped halfway.** Records, their forms and the type picker
