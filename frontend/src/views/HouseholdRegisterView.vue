@@ -303,26 +303,58 @@ function recordSubtitle(record) {
       v-else-if="!filtered.length"
       class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-16 text-center"
     >
-      <i class="fas fa-book-open mb-3 text-3xl text-gray-300" aria-hidden="true"></i>
+      <i
+        :class="['fas mb-3 text-3xl text-gray-300', group === 'people' ? 'fa-id-card' : 'fa-house']"
+        aria-hidden="true"
+      ></i>
       <p class="text-body-sm text-gray-500">
-        <template v-if="records.length">Nothing matches your search.</template>
+        <template v-if="records.length">Nothing matches what you're looking for.</template>
+        <template v-else-if="group === 'people'">
+          Passports, licences, birth certificates — photograph one with your phone, or type it in.
+        </template>
         <template v-else>
-          Passwords, permits, property details — start with a login or pick a record type.
+          Accounts, the house, the car, the money — the things the household runs on.
         </template>
       </p>
-      <div v-if="!records.length" class="mt-4 flex flex-wrap justify-center gap-2">
-        <RouterLink
-          :to="{ name: 'record-create', params: { type: 'login' } }"
-          class="rounded-base bg-primary-600 px-4 py-2 text-body-sm font-medium text-white hover:bg-primary-700"
-        >
-          Add a login
-        </RouterLink>
-        <RouterLink
-          :to="{ name: 'record-new' }"
+
+      <!-- The way out of an empty list has to be the way into this half of it.
+           Offering "Add a login" under Family records is an invitation to file
+           the wrong thing in the wrong drawer. -->
+      <div class="mt-4 flex flex-wrap justify-center gap-2">
+        <button
+          v-if="records.length"
+          type="button"
           class="rounded-base border border-gray-300 bg-white px-4 py-2 text-body-sm font-medium text-gray-700 hover:bg-gray-50"
+          @click="clearFilters"
         >
-          Other record types
-        </RouterLink>
+          Clear filters
+        </button>
+
+        <template v-else>
+          <button
+            v-if="group === 'people'"
+            type="button"
+            class="rounded-base bg-primary-600 px-4 py-2 text-body-sm font-medium text-white hover:bg-primary-700"
+            @click="scanning = true"
+          >
+            <i class="fas fa-qrcode mr-1.5" aria-hidden="true"></i>
+            Scan a document
+          </button>
+          <RouterLink
+            v-else
+            :to="{ name: 'record-create', params: { type: 'login' } }"
+            class="rounded-base bg-primary-600 px-4 py-2 text-body-sm font-medium text-white hover:bg-primary-700"
+          >
+            <i class="fas fa-key mr-1.5" aria-hidden="true"></i>
+            Add a login
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'record-new', query: { group } }"
+            class="rounded-base border border-gray-300 bg-white px-4 py-2 text-body-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {{ group === "people" ? "Add one by hand" : "Other record types" }}
+          </RouterLink>
+        </template>
       </div>
     </div>
 

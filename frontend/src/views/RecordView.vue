@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import api from "@/api/client";
 import FilePreview from "@/components/files/FilePreview.vue";
 import RecordAttachmentPicker from "@/components/records/RecordAttachmentPicker.vue";
@@ -16,12 +16,15 @@ import { useFilesStore } from "@/stores/files";
 import { useVaultGate } from "@/composables/useVaultGate";
 import { copyText } from "@/utils/clipboard";
 import { fileIcon } from "@/utils/formatting";
-import { sectionCrumb } from "@/utils/recordSection";
+import { sectionCrumb, sectionFor } from "@/utils/recordSection";
 
 const route = useRoute();
+const router = useRouter();
 const vaultGate = useVaultGate();
 const filesStore = useFilesStore();
 const sharing = ref(false);
+const confirmingDelete = ref(false);
+const deleting = ref(false);
 
 const record = ref(null);
 const loading = ref(true);
@@ -112,6 +115,27 @@ async function load() {
     error.value = e.userMessage;
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * Takes the record out of the register.
+ *
+ * Archived rather than destroyed — the row and its secrets stay in the
+ * database — but there is no screen that brings one back, so this asks first
+ * and says plainly that it is not undoable from here.
+ */
+async function remove() {
+  deleting.value = true;
+  error.value = "";
+
+  try {
+    await api.delete(`/records/${record.value.id}`);
+    router.push({ name: sectionFor(record.value.template?.group).route });
+  } catch (e) {
+    error.value = e.userMessage;
+    deleting.value = false;
+    confirmingDelete.value = false;
   }
 }
 
@@ -279,6 +303,16 @@ function openPreview(attachment) {
               @click="startEdit"
             >
               <i class="fas fa-pen mr-2 text-gray-400" aria-hidden="true"></i>Edit
+            </button>
+            <button
+              v-if="record.permissions?.can_delete"
+              type="button"
+              class="rounded-base border border-gray-300 px-3 py-2 text-body-sm font-medium text-gray-500 transition hover:border-error-100 hover:bg-error-50 hover:text-error-600"
+              aria-label="Delete this record"
+              title="Delete this record"
+              @click="confirmingDelete = true"
+            >
+              <i class="fas fa-trash" aria-hidden="true"></i>
             </button>
           </template>
         </div>
@@ -558,6 +592,47 @@ function openPreview(attachment) {
             </template>
           </section>
         </aside>
+      </div>
+
+      <!-- Asking first, because there is no screen that brings one back. -->
+      <div
+        v-if="confirmingDelete"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4"
+        @click.self="confirmingDelete = false"
+      >
+        <div
+          class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-record-title"
+        >
+          <h2 id="delete-record-title" class="text-h3 font-semibold text-gray-800">
+            Delete {{ record.title }}?
+          </h2>
+          <p class="mt-2 text-body-sm text-gray-600">
+            It leaves the register along with anything encrypted on it. The documents attached to
+            it stay in My Files.
+          </p>
+          <p class="mt-1 text-caption text-gray-500">This cannot be undone from here.</p>
+
+          <div class="mt-6 flex justify-end gap-3">
+            <button
+              type="button"
+              class="rounded-base border border-gray-300 px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              @click="confirmingDelete = false"
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              :disabled="deleting"
+              class="rounded-base bg-error-600 px-4 py-2 text-body-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+              @click="remove"
+            >
+              {{ deleting ? "Deleting…" : "Delete" }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <FilePreview v-if="previewFile" :file="previewFile" @close="previewFile = null" />
