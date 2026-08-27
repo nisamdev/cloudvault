@@ -14,9 +14,15 @@ class PdfPageRenderer
   THUMB_WIDTH = 260
   MAX_THUMBS = 24
 
-  def initialize(pdf_bytes, width: RENDER_WIDTH)
+  # Wide enough to read the small print on a card that occupies a corner of the
+  # page. A scan is going to be cropped and put through OCR, and a rendering
+  # too small to read is too small to crop out of.
+  READ_WIDTH = 1700
+
+  def initialize(pdf_bytes, width: RENDER_WIDTH, format: :png)
     @pdf_bytes = pdf_bytes
     @width = width
+    @format = format
   end
 
   def page_count
@@ -36,18 +42,31 @@ class PdfPageRenderer
     last = [ first + limit, page_count ].min
 
     (first...last).map do |index|
-      image = Vips::Image.pdfload_buffer(@pdf_bytes, page: index, dpi: 150)
+      # Rendering below the width being asked for and scaling up loses the
+      # detail the width was asked for in the first place.
+      image = Vips::Image.pdfload_buffer(@pdf_bytes, page: index, dpi: @width > 1200 ? 300 : 150)
       scaled = image.width > @width ? image.resize(@width.to_f / image.width) : image
 
       {
         number: index + 1,
         width: scaled.width,
         height: scaled.height,
-        png: scaled.pngsave_buffer(compression: 9)
+        # JPEG for the big renders: a photograph of a card compresses to a
+        # tenth of the PNG, and these travel inline as base64.
+        png: encode(scaled),
+        content_type: @format == :jpeg ? "image/jpeg" : "image/png"
       }
     rescue Vips::Error => e
       Rails.logger.error("[pdf-render] page #{index + 1}: #{e.message}")
       nil
     end.compact
+  end
+
+  private
+
+  def encode(image)
+    return image.jpegsave_buffer(Q: 88, strip: true) if @format == :jpeg
+
+    image.pngsave_buffer(compression: 9)
   end
 end

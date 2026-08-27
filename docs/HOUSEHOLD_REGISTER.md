@@ -374,7 +374,36 @@ birth and the surname, and those two readings agreeing is as close to a check
 digit as the document gets. Where they disagree, the value is still offered and
 simply not vouched for.
 
-`DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,HealthCard}`,
+**Or from a document already filed.** The QR code is for a document in your
+hand; a scan already in My Files needs no phone at all. The form offers "Fill
+this in from a scan", which lists what OCR can actually open — photographs and
+PDFs, documents before photographs, because the whole vault newest-first buries
+one scanned licence under a month of pictures. Same crop, same read, and
+"Adjust and read again" to go round once more after seeing what it got wrong.
+
+Reading again replaces the PDF from the last attempt rather than leaving
+another near-identical scan behind, and walking away from the form takes its
+scan with it. The file only ever existed to be attached to a record.
+
+A PDF that carries real text is read as it is. A scanned one is a photograph
+and is treated as one — including being rendered large enough to crop out of,
+which is not the size a page-turner needs.
+
+**A licence is a different document in every country**, and none of them says
+so in a way a machine can rely on, so each reader is tried until one recognises
+the page. There are two: the UK's DVLA card, and Alberta's — which most of the
+Canadian provinces follow closely enough to be worth trying.
+
+Nothing on the Canadian card checks anything else on it, so it vouches for
+nothing and every field comes back as something to look at. What it does have
+is shape, which is all that survives OCR: the number is closed up before it is
+looked for, because the card's kerning invites "1786 11- 770"; the dates are
+sorted by order when their labels were misread, since nobody is born after
+their licence was issued; and the address is found by its province when the
+postcode — three characters of the smallest print on the card — comes back as
+"ce".
+
+`DocumentPresets`, `DocumentExtractors::{Mrz,DrivingLicence,CanadianLicence,HealthCard}`,
 `DocumentReader`, `POST /document_captures`, `GET /document_captures/page/:id`,
 `purpose` on the scan session, and `PurgeHeldScansJob`.
 

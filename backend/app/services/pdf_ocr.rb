@@ -26,8 +26,15 @@ class PdfOcr
     @available = system("tesseract", "--version", out: File::NULL, err: File::NULL)
   end
 
-  def initialize(bytes)
+  # Tesseract's page segmentation. 3 assumes a page of prose and suits most
+  # documents; 4 assumes a single column of text in mixed sizes, which is what
+  # an identity card is and what a page of prose is not.
+  PAGE = "3"
+  CARD = "4"
+
+  def initialize(bytes, layout: PAGE)
     @bytes = bytes
+    @layout = layout
   end
 
   def call
@@ -67,7 +74,7 @@ class PdfOcr
     image = Vips::Image.pdfload_buffer(@bytes, page: index, dpi: DPI)
     long = [ image.width, image.height ].max
     image = image.resize(MAX_EDGE.to_f / long) if long > MAX_EDGE
-    png = image.pngsave_buffer
+    png = greyscale(image).pngsave_buffer
 
     Tempfile.create([ "ocr", ".png" ]) do |file|
       file.binmode
@@ -78,7 +85,7 @@ class PdfOcr
       out, err, status = Open3.capture3(
         "tesseract", file.path, "stdout",
         "-l", "eng",
-        "--psm", "3"
+        "--psm", @layout
       )
 
       unless status.success?
@@ -91,6 +98,14 @@ class PdfOcr
   rescue Vips::Error, StandardError => e
     Rails.logger.info("[pdf_ocr] page #{index + 1}: #{e.class}: #{e.message}")
     ""
+  end
+
+  # Colour carries nothing tesseract wants, and a laminated card photographed
+  # under a light reads better without it.
+  def greyscale(image)
+    image.colourspace("b-w")
+  rescue Vips::Error
+    image
   end
 
   def clean(text)

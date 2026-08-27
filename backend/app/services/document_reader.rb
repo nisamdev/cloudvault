@@ -52,11 +52,16 @@ class DocumentReader
 
   private
 
-  # A preset with a parser of its own uses it; everything else falls back to the
-  # labelled-field reader that already serves "Read a document".
+  # Each reader in turn, first one that recognises the document wins. A driving
+  # licence is a different document in every country and none of them says so
+  # in a way a machine can rely on, so the only honest test is whether a reader
+  # can make sense of the page.
+  #
+  # Anything nobody recognises falls back to the labelled-field reader that
+  # already serves "Read a document".
   def run_extractor
-    if @preset.extractor
-      found = @preset.extractor.parse(@text)
+    Array(@preset.extractors).each do |extractor|
+      found = extractor.parse(@text)
       return found if found
     end
 

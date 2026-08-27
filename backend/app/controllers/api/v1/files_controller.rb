@@ -449,9 +449,12 @@ module Api
         end
 
         thumbnails = params[:size] == "thumb"
+        # "read" is for cropping and OCR, where the small print has to survive.
+        reading = params[:size] == "read"
         renderer = PdfPageRenderer.new(
           @file.attachment.download,
-          width: thumbnails ? PdfPageRenderer::THUMB_WIDTH : PdfPageRenderer::RENDER_WIDTH
+          width: page_render_width(thumbnails, reading),
+          format: reading ? :jpeg : :png
         )
         rendered = renderer.pages(
           limit: thumbnails ? PdfPageRenderer::MAX_THUMBS : PdfPageRenderer::MAX_PAGES,
@@ -460,6 +463,10 @@ module Api
 
         render json: {
           page_count: renderer.page_count,
+          # Whether the PDF carries real text or is a picture of one. A reader
+          # should take a born-digital PDF at its word and treat a scanned one
+          # as the photograph it is — which means letting it be cropped first.
+          has_text_layer: PdfTextExtractor.new(@file.attachment.download).call.any_text?,
           pages: rendered.map do |page|
             {
               number: page[:number],
@@ -467,7 +474,7 @@ module Api
               height: page[:height],
               # Inline data rather than a URL: an <img> cannot send the bearer
               # token, and these are throwaway renders not worth storing.
-              image: "data:image/png;base64,#{Base64.strict_encode64(page[:png])}"
+              image: "data:#{page[:content_type]};base64,#{Base64.strict_encode64(page[:png])}"
             }
           end
         }
@@ -869,6 +876,13 @@ module Api
         application/json application/xml application/javascript
         application/x-yaml application/yaml application/sql
       ].freeze
+
+      def page_render_width(thumbnails, reading)
+        return PdfPageRenderer::THUMB_WIDTH if thumbnails
+        return PdfPageRenderer::READ_WIDTH if reading
+
+        PdfPageRenderer::RENDER_WIDTH
+      end
 
       def preview_kind(file)
         mime = file.mime_type.to_s

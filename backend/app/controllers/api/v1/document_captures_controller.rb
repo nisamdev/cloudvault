@@ -47,14 +47,11 @@ module Api
         stored = params[:file_id].present? ? existing_file : store_scan
         return if performed?
 
-        bytes = stored.attachment.download
-        text = read_text(bytes)
-
-        suggestion = DocumentReader.new(text, params[:preset]).call
+        suggestion = best_reading(stored.attachment.download)
 
         render json: suggestion.to_h.merge(
           file: { id: stored.id, name: stored.name, size: stored.size, mime_type: stored.mime_type },
-          found_text: text.present?
+          found_text: suggestion.text.present?
         ), status: :created
       rescue ImagePdfBuilder::Error => e
         render_error(message: e.message, code: "pdf_failed", status: :unprocessable_content)
@@ -66,11 +63,25 @@ module Api
 
       # The text layer if the document has one, and the writing inside the
       # picture if it does not — which for a photographed passport is always.
-      def read_text(bytes)
+      #
+      # Two goes at a picture. The default segmentation expects a page of prose;
+      # an identity card is a handful of short lines in several sizes and reads
+      # far better when tesseract is told to expect one column of them. Trying
+      # both costs the extra time only when the first attempt found nothing —
+      # which is exactly when it is worth spending.
+      def best_reading(bytes)
         extracted = PdfTextExtractor.new(bytes).call
-        return extracted.text if extracted.any_text?
+        return reading(extracted.text) if extracted.any_text?
 
-        PdfOcr.new(bytes).call.text
+        first = reading(PdfOcr.new(bytes).call.text)
+        return first if first.fields.any?
+
+        second = reading(PdfOcr.new(bytes, layout: PdfOcr::CARD).call.text)
+        second.fields.any? ? second : first
+      end
+
+      def reading(text)
+        DocumentReader.new(text, params[:preset]).call
       end
 
       def existing_file
