@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref } from "vue";
 import api from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
 import { useFilesStore } from "@/stores/files";
@@ -12,6 +12,15 @@ const emit = defineEmits(["close"]);
 
 const auth = useAuthStore();
 const filesStore = useFilesStore();
+
+/**
+ * Both of these controls were written from the point of view of whoever
+ * uploaded the file, and read as lies to anybody else: "Only me" on somebody
+ * else's shared file does not keep it — it hands it back to them and takes it
+ * away from you.
+ */
+const mine = computed(() => props.file.owner?.id === auth.user?.id);
+const uploader = computed(() => props.file.owner?.name || "whoever uploaded it");
 
 // Family sharing is a property of the file itself, separate from public links:
 // one controls who inside the family can see it, the other hands access to
@@ -271,16 +280,20 @@ async function revoke(share) {
               @click="setVisibility('private')"
             >
               <span class="flex items-center gap-2 text-body-sm font-medium text-gray-800">
-                <i class="fas fa-lock text-gray-500" aria-hidden="true"></i>Only me
+                <i class="fas fa-lock text-gray-500" aria-hidden="true"></i>
+                {{ mine ? "Only me" : "Take it out of the family" }}
               </span>
-              <span class="mt-1 block text-caption text-gray-500">Nobody else can see it</span>
+              <span class="mt-1 block text-caption text-gray-500">
+                {{ mine ? "Nobody else can see it" : `It goes back to ${uploader}, and you lose it` }}
+              </span>
             </button>
 
             <button
               type="button"
               role="radio"
               :aria-checked="visibility === 'family'"
-              :disabled="savingVisibility || !auth.canEdit"
+              :disabled="savingVisibility || !auth.canEdit || !mine"
+              :title="mine ? undefined : `Only ${uploader} can share this with the family`"
               :class="[
                 'rounded-base border p-3 text-left transition disabled:opacity-60',
                 visibility === 'family'

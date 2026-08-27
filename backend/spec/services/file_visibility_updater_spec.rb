@@ -90,3 +90,59 @@ RSpec.describe FileVisibilityUpdater do
     }.to raise_error(described_class::Error)
   end
 end
+
+# Deciding who can see a file is the owner's call, not an editing right.
+# Family visibility already lets every member change what is *in* a file; it
+# does not make somebody else's file theirs to publish or to keep.
+RSpec.describe FileVisibilityUpdater, "whose decision it is" do
+  let(:family) { create(:family) }
+  let(:owner) { family.owner }
+  let(:member) { create(:user) }
+  let!(:membership) { create(:family_member, family: family, user: member, role: "editor") }
+
+  let(:theirs) do
+    create(:stored_file, user: member, family: family, visibility: "family", name: "Holiday.jpg")
+  end
+  let(:their_private) do
+    create(:stored_file, user: member, family: nil, visibility: "private", name: "Diary.pdf")
+  end
+
+  it "will not let one member publish another's private file" do
+    expect { described_class.new(file: their_private, user: owner).call("family") }
+      .to raise_error(FileVisibilityUpdater::Forbidden, /Only whoever uploaded/)
+  end
+
+  # A household has to be able to take down something it should not be holding.
+  it "lets somebody who runs the family take a file back out of it" do
+    described_class.new(file: theirs, user: owner).call("private")
+
+    expect(theirs.reload.visibility).to eq("private")
+    expect(theirs.family_id).to be_nil
+  end
+
+  # This is the part that read as "it disappeared": unsharing does not take
+  # possession, it returns the file to whoever put it there.
+  it "returns it to the person who uploaded it, rather than keeping it" do
+    described_class.new(file: theirs, user: owner).call("private")
+
+    expect(theirs.reload.user_id).to eq(member.id)
+    expect(PermissionChecker.can_view?(member, theirs)).to be(true)
+    expect(PermissionChecker.can_view?(owner, theirs)).to be(false)
+  end
+
+  it "will not let an ordinary member unshare somebody else's file" do
+    other = create(:user)
+    create(:family_member, family: family, user: other, role: "editor")
+
+    expect { described_class.new(file: theirs, user: other).call("private") }
+      .to raise_error(FileVisibilityUpdater::Forbidden, /or a family admin/)
+  end
+
+  it "still lets people share and unshare their own" do
+    described_class.new(file: their_private, user: member).call("family")
+    expect(their_private.reload.visibility).to eq("family")
+
+    described_class.new(file: their_private, user: member).call("private")
+    expect(their_private.reload.visibility).to eq("private")
+  end
+end

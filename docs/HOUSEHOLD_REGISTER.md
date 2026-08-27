@@ -506,6 +506,33 @@ And the attached PDFs have a download button on the record itself. It is always
 visible rather than appearing on hover, because half the family reads this on a
 phone.
 
+### Who decides what is shared
+
+Sharing does not change who owns a file. It never did — the whole matrix was
+walked to be sure of it, and a file shared with the family stays the uploader's
+throughout.
+
+What did go wrong is that *changing* the sharing was treated as an editing
+right. Family visibility means every member may change what is in a file; it
+was also letting them decide who could see it, which is a different thing
+entirely and belongs to whoever put it there. Two consequences, both bad:
+
+- One member could publish another's private file to the household.
+- Picking "Only me" on somebody else's shared file did not keep it. It took the
+  file out of the family and handed it back to the uploader — the opposite of
+  what the button said, and it left the person who pressed it unable to see it
+  at all.
+
+Sharing is now the owner's decision about their own file. Taking something back
+out of the family is the owner's too, and also anybody who runs the family —
+that is how a household removes something it should not be holding — and the
+button says which of those you are doing and where the file will end up.
+
+One consequence worth stating, because it surprised somebody: taking a file out
+of the family returns it to whoever uploaded it. It does not become the
+remover's. If a departed member's contribution is meant to stay, leave it
+shared; it already belongs to the family owner.
+
 ### Being taken out of a family
 
 Removal is its own button beside the vault switch, labelled with the word for
