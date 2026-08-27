@@ -9,57 +9,53 @@ module Api
     class SharesController < BaseController
       allow_unauthenticated :show, :download
 
-      before_action :set_file, only: %i[index create]
+      before_action :set_subject, only: %i[index create]
       before_action :set_link_by_token, only: %i[show download]
 
       # GET /api/v1/shares — every link I have out, across all my files
       def mine
         links = SharedLink.active
                           .where(user_id: current_user.id)
-                          .includes(:stored_file)
+                          .includes(:stored_file, :vault_record)
                           .order(created_at: :desc)
 
-        # A link to a trashed file is dead weight; do not list it as live.
-        links = links.reject { |link| link.stored_file.nil? || link.stored_file.trashed? }
+        # A link to something trashed is dead weight; do not list it as live.
+        links = links.reject(&:subject_gone?)
 
         render json: {
           shares: links.map do |link|
             serialize(link).merge(
-              file: {
-                id: link.stored_file_id,
-                name: link.stored_file.name,
-                mime_type: link.stored_file.mime_type,
-                file_type: link.stored_file.file_type
-              },
+              subject_summary(link),
               status: link.usable? ? "active" : link.unusable_reason
             )
           end
         }
       end
 
-      # GET /api/v1/files/:file_id/shares
+      # GET /api/v1/files/:file_id/shares — or /records/:record_id/shares
       def index
         authorize_share! or return
 
-        links = @file.shared_links.active.order(created_at: :desc)
+        links = SharedLink.active.where(subject_key => @subject.id).order(created_at: :desc)
         render json: { shares: links.map { |link| serialize(link) } }
       end
 
-      # POST /api/v1/files/:file_id/shares
+      # POST /api/v1/files/:file_id/shares — or /records/:record_id/shares
       def create
         authorize_share! or return
 
         # A public link to an encrypted file would have to hand out the key with
         # it, which is the opposite of what putting it in the private section
         # was for.
-        if @file.locked?
+        if @subject.is_a?(StoredFile) && @subject.locked?
           return render_error(
-            message: "#{@file.name} is in your private section. Take it out before sharing a link to it.",
+            message: "#{@subject.name} is in your private section. Take it out before sharing a link to it.",
             code: "file_locked", status: :unprocessable_content
           )
         end
 
-        link = @file.shared_links.new(
+        link = SharedLink.new(
+          subject_key => @subject.id,
           user: current_user,
           expires_at: parse_expiry,
           max_downloads: params[:max_downloads].presence
@@ -76,7 +72,7 @@ module Api
       def destroy
         link = SharedLink.find(params[:id])
 
-        unless PermissionChecker.can_share?(current_user, link.stored_file)
+        unless may_share?(link.subject)
           return render_error(message: "You don't have permission to do that.",
                               code: "forbidden", status: :forbidden)
         end
@@ -87,33 +83,16 @@ module Api
 
       # GET /api/v1/shares/:token — public metadata for the share landing page
       def show
-        return render_unusable if @link.nil? || !@link.usable?
+        # A trashed file or an archived record must not stay reachable through
+        # an old link.
+        return render_unusable if @link.nil? || !@link.usable? || @link.subject_gone?
 
-        file = @link.stored_file
-        # A trashed file must not stay reachable through an old link.
-        return render_unusable if file.trashed?
-
-        render json: {
-          share: {
-            requires_password: @link.password_protected?,
-            expires_at: @link.expires_at,
-            file: {
-              name: file.name,
-              size: file.size,
-              mime_type: file.mime_type,
-              file_type: file.file_type,
-              shared_by: file.user.full_name || file.user.email
-            }
-          }
-        }
+        render json: { share: public_share(@link) }
       end
 
       # POST /api/v1/shares/:token/download
       def download
-        return render_unusable if @link.nil? || !@link.usable?
-
-        file = @link.stored_file
-        return render_unusable if file.trashed?
+        return render_unusable if @link.nil? || !@link.usable? || @link.subject_gone?
 
         if @link.password_protected? && !@link.authenticate_password(params[:password].to_s)
           return render_error(
@@ -122,6 +101,9 @@ module Api
             status: :unauthorized
           )
         end
+
+        file = shared_file
+        return if performed?
 
         unless file.attachment.attached?
           return render_error(message: "That file has no contents.", code: "not_found", status: :not_found)
@@ -134,13 +116,103 @@ module Api
 
       private
 
-      def set_file
-        @file = StoredFile.find(params[:file_id])
+      # A share hangs off a file or off a record, and everything after this
+      # point treats the two the same way.
+      def set_subject
+        @subject =
+          if params[:record_id].present?
+            VaultRecord.active.find(params[:record_id])
+          else
+            StoredFile.find(params[:file_id])
+          end
 
-        return if PermissionChecker.can_view?(current_user, @file)
+        return if may_view?(@subject)
 
         render_error(message: "We couldn't find what you were looking for.",
                      code: "not_found", status: :not_found)
+      end
+
+      def subject_key = @subject.is_a?(VaultRecord) ? :vault_record_id : :stored_file_id
+
+      def may_view?(subject)
+        return RecordPermissions.can_view?(current_user, subject) if subject.is_a?(VaultRecord)
+
+        PermissionChecker.can_view?(current_user, subject)
+      end
+
+      # Sharing a record is the owner's call, or an editor's — the same people
+      # who could change it.
+      def may_share?(subject)
+        return false if subject.nil?
+        return RecordPermissions.can_edit?(current_user, subject) if subject.is_a?(VaultRecord)
+
+        PermissionChecker.can_share?(current_user, subject)
+      end
+
+      # The file a public visitor is asking for. For a file share there is only
+      # one; for a record share it must be one of that record's own documents,
+      # or the link becomes a way to read the whole vault.
+      def shared_file
+        return @link.stored_file unless @link.for_record?
+
+        file = @link.vault_record.stored_files.find_by(id: params[:file_id])
+        if file.nil? || file.trashed?
+          render_error(message: "That document is not part of this share.",
+                       code: "not_found", status: :not_found)
+          return nil
+        end
+
+        file
+      end
+
+      # What anybody holding the link is shown. Never a secret: a record's
+      # passwords are encrypted under a passphrase this link does not have.
+      def public_share(link)
+        base = {
+          requires_password: link.password_protected?,
+          expires_at: link.expires_at,
+          kind: link.for_record? ? "record" : "file"
+        }
+
+        link.for_record? ? base.merge(record: shared_record(link.vault_record)) : base.merge(file: shared_file_summary(link.stored_file))
+      end
+
+      def shared_record(record)
+        template = record.template
+
+        {
+          title: record.title,
+          type_label: template&.label || record.record_type,
+          shared_by: record.user.full_name || record.user.email,
+          # Only fields the template knows and the record filled in, in the
+          # order the form shows them. Nothing invented, nothing encrypted.
+          details: (template&.fields || []).reject(&:secret?).filter_map do |field|
+            value = record.data[field.key]
+            { label: field.label, value: value, kind: field.kind } if value.present?
+          end,
+          documents: record.stored_files.reject(&:trashed?).map do |file|
+            { id: file.id, name: file.name, size: file.size, mime_type: file.mime_type }
+          end
+        }
+      end
+
+      def shared_file_summary(file)
+        {
+          name: file.name,
+          size: file.size,
+          mime_type: file.mime_type,
+          file_type: file.file_type,
+          shared_by: file.user.full_name || file.user.email
+        }
+      end
+
+      # One row in "links I have out", whichever kind it is.
+      def subject_summary(link)
+        return { file: shared_file_summary(link.stored_file).merge(id: link.stored_file_id) } unless link.for_record?
+
+        record = link.vault_record
+        { record: { id: record.id, title: record.title, record_type: record.record_type,
+                    document_count: record.stored_files.reject(&:trashed?).size } }
       end
 
       def set_link_by_token
@@ -148,10 +220,10 @@ module Api
       end
 
       def authorize_share!
-        return true if PermissionChecker.can_share?(current_user, @file)
+        return true if may_share?(@subject)
 
         render_error(
-          message: "You don't have permission to share this file.",
+          message: "You don't have permission to share this.",
           code: "forbidden",
           status: :forbidden
         )

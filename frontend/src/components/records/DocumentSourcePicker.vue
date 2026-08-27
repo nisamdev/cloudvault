@@ -134,7 +134,7 @@ async function onUploadSelect(event) {
           class="flex w-full items-center gap-3 px-3 py-2 text-left text-body-sm hover:bg-gray-50"
           @click="emit('select', file)"
         >
-          <i :class="['fas w-4 text-gray-400', fileIcon(file)]" aria-hidden="true"></i>
+          <i :class="['fas w-4', fileIcon(file).icon, fileIcon(file).className]" aria-hidden="true"></i>
           <span class="min-w-0 flex-1 truncate text-gray-800">{{ file.name }}</span>
           <span
             v-if="isPdf(file)"

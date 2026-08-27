@@ -407,6 +407,28 @@ postcode — three characters of the smallest print on the card — comes back a
 `DocumentReader`, `POST /document_captures`, `GET /document_captures/page/:id`,
 `purpose` on the scan session, and `PurgeHeldScansJob`.
 
+### Handing one to somebody outside the family
+
+Sharing with the family is a property of the record: who inside the house can
+see it. Handing a passport to a landlord is the other thing entirely, and it
+now has its own control — a link that stops working on a date you pick, is
+revocable before then, and can carry a password you say over the phone.
+
+The person at the other end needs no account. They get the record's details
+read-only and every document on it to view and download, on a page that says
+so plainly. They never get a secret: a record's passwords are encrypted under a
+passphrase the link does not have and could not hand over if it did.
+
+A share link used to point at one file. It now points at one file *or* one
+record, with a check constraint saying exactly that — two, or none, is a link
+nobody can follow. A record share only ever opens its own documents; asking it
+for any other file is a 404, or a link to one record would be a way to read the
+vault.
+
+And the attached PDFs have a download button on the record itself. It is always
+visible rather than appearing on hover, because half the family reads this on a
+phone.
+
 ## Still open, outside the numbered steps
 
 - **The design pass stopped halfway.** Records, their forms and the type picker

@@ -10,12 +10,16 @@ import RecordSecretDisplay from "@/components/records/RecordSecretDisplay.vue";
 import RecordSecretInput from "@/components/records/RecordSecretInput.vue";
 import RecordValidity from "@/components/records/RecordValidity.vue";
 import RecordFieldValue from "@/components/records/RecordFieldValue.vue";
+import RecordShareModal from "@/components/records/RecordShareModal.vue";
+import { useFilesStore } from "@/stores/files";
 import { useVaultGate } from "@/composables/useVaultGate";
 import { copyText } from "@/utils/clipboard";
 import { fileIcon } from "@/utils/formatting";
 
 const route = useRoute();
 const vaultGate = useVaultGate();
+const filesStore = useFilesStore();
+const sharing = ref(false);
 
 const record = ref(null);
 const loading = ref(true);
@@ -178,6 +182,15 @@ function siteHref(url) {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
+/** The attached document itself, straight to disk. */
+async function downloadAttachment(attachment) {
+  try {
+    await filesStore.download({ id: attachment.file_id, name: attachment.name });
+  } catch (e) {
+    error.value = e.userMessage;
+  }
+}
+
 function openPreview(attachment) {
   previewFile.value = {
     id: attachment.file_id,
@@ -243,14 +256,23 @@ function openPreview(attachment) {
               {{ saving ? "Saving…" : "Save changes" }}
             </button>
           </template>
-          <button
-            v-else
-            type="button"
-            class="rounded-base border border-gray-300 px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
-            @click="startEdit"
-          >
-            <i class="fas fa-pen mr-2 text-gray-400" aria-hidden="true"></i>Edit
-          </button>
+          <template v-else>
+            <button
+              v-if="record.permissions?.can_edit"
+              type="button"
+              class="rounded-base border border-gray-300 px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              @click="sharing = true"
+            >
+              <i class="fas fa-share-nodes mr-2 text-gray-400" aria-hidden="true"></i>Share
+            </button>
+            <button
+              type="button"
+              class="rounded-base border border-gray-300 px-4 py-2 text-body-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              @click="startEdit"
+            >
+              <i class="fas fa-pen mr-2 text-gray-400" aria-hidden="true"></i>Edit
+            </button>
+          </template>
         </div>
       </header>
 
@@ -414,14 +436,32 @@ function openPreview(attachment) {
               :visibility="record.visibility"
             />
             <ul v-else-if="record.attachments?.length" class="space-y-1">
-              <li v-for="file in record.attachments" :key="file.id">
+              <li
+                v-for="file in record.attachments"
+                :key="file.id"
+                class="group flex items-center gap-1 rounded-base transition hover:bg-gray-50"
+              >
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 rounded-base px-2 py-1.5 text-left text-body-sm text-gray-800 transition hover:bg-gray-50 hover:text-primary-600"
+                  class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-body-sm text-gray-800 transition hover:text-primary-600"
                   @click="openPreview(file)"
                 >
-                  <i :class="['fas text-gray-400', fileIcon(file)]" aria-hidden="true"></i>
+                  <i :class="['fas shrink-0', fileIcon(file).icon, fileIcon(file).className]" aria-hidden="true"></i>
                   <span class="truncate">{{ file.name }}</span>
+                </button>
+                <!-- The scan is the thing you came for as often as the record
+                     is: keeping it one click away saves opening a preview to
+                     find the button. Always visible, never hover-only — half
+                     the family reads this on a phone, where there is no hover.
+                     -->
+                <button
+                  type="button"
+                  class="shrink-0 rounded-md p-1.5 text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
+                  :aria-label="`Download ${file.name}`"
+                  :title="`Download ${file.name}`"
+                  @click="downloadAttachment(file)"
+                >
+                  <i class="fas fa-arrow-down-to-line" aria-hidden="true"></i>
                 </button>
               </li>
             </ul>
@@ -493,6 +533,7 @@ function openPreview(attachment) {
       </div>
 
       <FilePreview v-if="previewFile" :file="previewFile" @close="previewFile = null" />
+      <RecordShareModal v-if="sharing" :record="record" @close="sharing = false" />
     </template>
   </section>
 </template>

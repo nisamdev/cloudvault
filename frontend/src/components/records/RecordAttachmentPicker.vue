@@ -129,7 +129,7 @@ async function onUploadSelect(event) {
         :key="file.id"
         class="flex items-center gap-2 text-body-sm text-gray-800"
       >
-        <i :class="['fas text-gray-400', fileIcon(file)]" aria-hidden="true"></i>
+        <i :class="['fas', fileIcon(file).icon, fileIcon(file).className]" aria-hidden="true"></i>
         <span class="min-w-0 flex-1 truncate">{{ file.name }}</span>
         <button
           type="button"
@@ -205,7 +205,7 @@ async function onUploadSelect(event) {
               :class="['fas w-4', selected.has(file.id) ? 'fa-check text-primary-600' : 'fa-plus text-gray-300']"
               aria-hidden="true"
             ></i>
-            <i :class="['fas text-gray-400', fileIcon(file)]" aria-hidden="true"></i>
+            <i :class="['fas', fileIcon(file).icon, fileIcon(file).className]" aria-hidden="true"></i>
             <span class="min-w-0 flex-1 truncate">{{ file.name }}</span>
             <span class="text-caption text-gray-400">{{ formatFileSize(file.size) }}</span>
           </button>
