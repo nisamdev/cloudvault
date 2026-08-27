@@ -110,7 +110,10 @@ module Api
           unlocked: unlocked.nil? ? vault_unlocked? : unlocked,
           recovery_key_acknowledged: record&.recovery_key_shown_at.present?,
           locked_files: current_user.stored_files.active.where(locked: true).count,
-          locked_folders: current_user.folders.active.where(locked: true).count
+          locked_folders: current_user.folders.active.where(locked: true).count,
+          # Records can be locked too. Counting only files made the locked
+          # screen say "0 files, 0 folders" over a section that had things in it.
+          locked_records: VaultRecord.active.where(user_id: current_user.id, locked: true).count
         }
       end
     end

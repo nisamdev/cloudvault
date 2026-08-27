@@ -238,7 +238,14 @@ module Api
           archived_at: record.archived_at,
           created_at: record.created_at,
           updated_at: record.updated_at,
-          highlights: record.fields.first(3).map { |row| { label: row[:field].label, value: row[:value] } },
+          # The kind travels with the value: without it a card cannot tell a
+          # policy number from a renewal date, and renders both as grey text.
+          highlights: record.fields.first(3).map do |row|
+            { label: row[:field].label, value: row[:value], kind: row[:field].kind }
+          end,
+          # The soonest date this record is counting down to, so the register can
+          # say "18 days left" instead of "2026-09-14".
+          next_expiry: next_expiry_for(record),
           owner: { id: record.user_id, name: record.user.full_name || record.user.email },
           permissions: {
             can_edit: RecordPermissions.can_edit?(current_user, record),
@@ -257,6 +264,16 @@ module Api
           attachments: serialize_attachments(record),
           template: template&.to_h
         )
+      end
+
+      # Soonest first, and dates that have already gone still count — an expired
+      # permit is the most urgent thing on the page, not the least.
+      def next_expiry_for(record)
+        soonest = record.expiries.min_by { |_field, date| date }
+        return nil if soonest.nil?
+
+        field, date = soonest
+        { key: field.key, label: field.label, date: date.iso8601, days: (date - Date.current).to_i }
       end
 
       def serialize_secrets(record)

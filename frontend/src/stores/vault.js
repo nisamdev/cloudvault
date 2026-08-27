@@ -15,6 +15,7 @@ export const useVaultStore = defineStore("vault", () => {
   const recoveryAcknowledged = ref(false);
   const lockedFiles = ref(0);
   const lockedFolders = ref(0);
+  const lockedRecords = ref(0);
   const checked = ref(false);
   const busy = ref(false);
 
@@ -29,6 +30,7 @@ export const useVaultStore = defineStore("vault", () => {
     recoveryAcknowledged.value = data.recovery_key_acknowledged;
     lockedFiles.value = data.locked_files ?? 0;
     lockedFolders.value = data.locked_folders ?? 0;
+    lockedRecords.value = data.locked_records ?? 0;
     checked.value = true;
 
     if (data.token) setVaultToken(data.token);
@@ -115,6 +117,7 @@ export const useVaultStore = defineStore("vault", () => {
     recoveryKey,
     lockedFiles,
     lockedFolders,
+    lockedRecords,
     checked,
     busy,
     needsSetup,

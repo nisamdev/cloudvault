@@ -34,6 +34,22 @@ const currentFolderId = ref(null);
 const breadcrumbs = ref([]);
 const lockedFolders = ref([]);
 
+/**
+ * What is behind the lock, counting only the kinds that are actually there —
+ * "0 files, 0 folders" over a section holding six records was simply untrue.
+ */
+const lockedSummary = computed(() => {
+  const parts = [
+    [vault.lockedRecords, "record"],
+    [vault.lockedFiles, "file"],
+    [vault.lockedFolders, "folder"],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, noun]) => `${count} ${noun}${count === 1 ? "" : "s"}`);
+
+  return parts.length ? parts.join(", ") : "Nothing in here yet";
+});
+
 const lockedIds = computed(() => new Set(lockedFolders.value.map((f) => f.id)));
 
 const visibleFolders = computed(() => {
@@ -439,9 +455,7 @@ async function onUploadComplete({ uploaded, failed }) {
       <template v-if="vault.exists">
         <h2 class="mt-4 text-h3 font-semibold text-gray-800">Locked</h2>
         <p class="mx-auto mt-2 max-w-md text-body text-gray-500">
-          {{ vault.lockedFiles }} file{{ vault.lockedFiles === 1 ? "" : "s" }},
-          {{ vault.lockedFolders }} folder{{ vault.lockedFolders === 1 ? "" : "s" }}.
-          Enter your passphrase to open.
+          {{ lockedSummary }}. Enter your passphrase to open.
         </p>
       </template>
       <template v-else>

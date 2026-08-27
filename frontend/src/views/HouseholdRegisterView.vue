@@ -2,8 +2,9 @@
 import { computed, onMounted, ref } from "vue";
 import api from "@/api/client";
 import RecordIcon from "@/components/records/RecordIcon.vue";
-import { formatRelativeDate } from "@/utils/formatting";
 import { siteDomain } from "@/utils/recordIcon";
+import { recordTypeAccent, recordTypeTint } from "@/utils/recordType";
+import { expiryState, formatRecordDate } from "@/utils/recordDate";
 
 const records = ref([]);
 const templates = ref([]);
@@ -51,11 +52,34 @@ async function load() {
   }
 }
 
+/**
+ * A date is written the way it would be spoken, and a reference is left in
+ * monospace — the same rules the record's own page follows, so a card and the
+ * page behind it do not describe the same fact two different ways.
+ */
+function highlightText(highlight) {
+  if (["date", "expiry"].includes(highlight.kind)) return formatRecordDate(highlight.value);
+  return highlight.value;
+}
+
+/** What this record is counting down to, if anything. */
+function countdown(record) {
+  return record.next_expiry ? expiryState(record.next_expiry.date) : null;
+}
+
+const COUNTDOWN_TONE = {
+  expired: "text-error-600",
+  urgent: "text-error-600",
+  soon: "text-warning-600",
+  fine: "text-gray-500",
+};
+
 /** One line under the title — username, domain, or a useful highlight. */
 function recordSubtitle(record) {
   const highlights = (record.highlights ?? [])
-    .map((h) => h.value)
-    .filter(Boolean)
+    .filter((h) => h.value)
+    .filter((h) => !["date", "expiry"].includes(h.kind))
+    .map((h) => highlightText(h))
     .filter((v) => v !== record.title && !/^https?:\/\//i.test(v));
 
   if (record.record_type === "login") {
@@ -159,9 +183,9 @@ function recordSubtitle(record) {
       <li v-for="record in filtered" :key="record.id">
         <RouterLink
           :to="{ name: 'record', params: { id: record.id } }"
-          class="group flex h-full flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-primary-200 hover:shadow-md"
+          class="group flex h-full flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-md"
         >
-          <div class="flex items-start gap-3">
+          <div class="mb-4 flex items-start gap-3">
             <RecordIcon
               :title="record.title"
               :website="record.website"
@@ -172,20 +196,35 @@ function recordSubtitle(record) {
               <span class="block truncate font-semibold text-gray-900 group-hover:text-primary-700">
                 {{ record.title }}
               </span>
-              <span class="mt-0.5 block truncate text-body-sm text-gray-500">
+              <span
+                :class="[
+                  'mt-0.5 block truncate text-body-sm text-gray-500',
+                  (record.highlights ?? []).some((h) => h.kind === 'reference') ? 'font-mono' : '',
+                ]"
+              >
                 {{ recordSubtitle(record) }}
               </span>
             </div>
           </div>
 
-          <div class="mt-4 flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
+          <div class="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
             <span
-              class="truncate rounded-full bg-gray-100 px-2 py-0.5 text-caption font-medium text-gray-600"
+              class="truncate rounded-full px-2 py-0.5 text-caption font-medium"
+              :style="{
+                backgroundColor: recordTypeTint(record.record_type),
+                color: recordTypeAccent(record.record_type),
+              }"
             >
               {{ record.type_label }}
             </span>
-            <span v-if="record.updated_at" class="shrink-0 text-caption text-gray-400">
-              {{ formatRelativeDate(record.updated_at) }}
+            <!-- What it is counting down to beats when it was last touched:
+                 nobody opens the register to find out what they edited. -->
+            <span
+              v-if="countdown(record)"
+              :class="['shrink-0 text-caption font-medium', COUNTDOWN_TONE[countdown(record).tone]]"
+              :title="`${record.next_expiry.label}: ${countdown(record).formatted}`"
+            >
+              {{ countdown(record).label }}
             </span>
           </div>
         </RouterLink>
