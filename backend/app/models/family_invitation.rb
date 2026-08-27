@@ -17,7 +17,13 @@ class FamilyInvitation < ApplicationRecord
 
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 
-  scope :pending, -> { where(accepted_at: nil, revoked_at: nil).where(expires_at: Time.current..) }
+  scope :pending, lambda {
+    where(accepted_at: nil, revoked_at: nil, declined_at: nil).where(expires_at: Time.current..)
+  }
+
+  # Waiting for one particular person to answer, whether or not they have an
+  # account yet.
+  scope :addressed_to, ->(email) { pending.where(email: email.to_s.strip.downcase) }
 
   before_validation :generate_token, on: :create
   before_validation :set_expiry, on: :create
@@ -32,7 +38,8 @@ class FamilyInvitation < ApplicationRecord
     Digest::SHA256.hexdigest(token.to_s)
   end
 
-  def pending? = accepted_at.nil? && revoked_at.nil? && !expired?
+  def pending? = accepted_at.nil? && revoked_at.nil? && declined_at.nil? && !expired?
+  def declined? = declined_at.present?
   def expired? = expires_at.past?
 
   private

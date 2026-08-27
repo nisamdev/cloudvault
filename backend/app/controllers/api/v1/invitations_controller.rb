@@ -70,6 +70,40 @@ module Api
       end
 
       # POST /api/v1/invitations/:token/accept
+      # GET /api/v1/invitations/mine — what is waiting for me
+      #
+      # An invitation to somebody who already has an account used to exist only
+      # as a link in an email. If they never opened it, or lost it, there was
+      # nowhere in the app that knew they had been asked.
+      def mine
+        invitations = FamilyInvitation.addressed_to(current_user.email)
+                                      .includes(:family, :invited_by)
+                                      .order(created_at: :desc)
+
+        render json: { invitations: invitations.map { |i| serialize_waiting(i) } }
+      end
+
+      # POST /api/v1/invitations/mine/:id/accept
+      #
+      # No token. The token exists to prove somebody controls a mailbox before
+      # they have an account; signed in as the address it was sent to, it
+      # proves nothing further.
+      def accept_mine
+        invitation = waiting_invitation
+        return if performed?
+
+        join!(invitation)
+      end
+
+      # POST /api/v1/invitations/mine/:id/decline
+      def decline_mine
+        invitation = waiting_invitation
+        return if performed?
+
+        invitation.update!(declined_at: Time.current)
+        head :no_content
+      end
+
       def accept
         invitation = FamilyInvitation.find_by_raw_token(params[:token])
 
@@ -91,40 +125,7 @@ module Api
           )
         end
 
-        existing = current_user.primary_membership
-
-        # Someone who registered to accept an invitation may have been walked
-        # through "create your family" on the way in and ended up owning an empty
-        # one. That is an artefact of the sign-up flow, not a family, so it makes
-        # way for the invitation. Anything with another member or a single file
-        # in it is real and blocks acceptance.
-        if existing.present? && !discardable_family?(existing)
-          return render_error(
-            message: "You already belong to a family.",
-            code: "family_exists",
-            status: :conflict
-          )
-        end
-
-        member = nil
-        ActiveRecord::Base.transaction do
-          discard_family(existing) if existing.present?
-
-          member = invitation.family.family_members.create!(
-            user: current_user,
-            role: invitation.role,
-            joined_at: Time.current
-          )
-          invitation.update!(accepted_at: Time.current)
-        end
-
-        render json: {
-          family: {
-            id: invitation.family_id,
-            name: invitation.family.name,
-            role: member.role
-          }
-        }, status: :created
+        join!(invitation)
       end
 
       # DELETE /api/v1/families/:family_id/invitations/:id
@@ -138,6 +139,61 @@ module Api
       end
 
       private
+
+      # Joining a family, however the invitation was answered.
+      #
+      # Belonging to one family no longer stops you joining another — the app
+      # has let an account stand in any number of them since accounts stopped
+      # requiring one, and this was the last place still refusing. What is
+      # still true is the empty family a sign-up flow leaves behind: that is an
+      # artefact, not a family, and it makes way rather than accumulating.
+      def join!(invitation)
+        if invitation.family.family_members.exists?(user_id: current_user.id)
+          return render_error(message: "You are already in #{invitation.family.name}.",
+                              code: "already_a_member", status: :conflict)
+        end
+
+        existing = current_user.primary_membership
+        member = nil
+
+        ActiveRecord::Base.transaction do
+          discard_family(existing) if existing.present? && discardable_family?(existing)
+
+          member = invitation.family.family_members.create!(
+            user: current_user,
+            role: invitation.role,
+            joined_at: Time.current
+          )
+          invitation.update!(accepted_at: Time.current)
+          # The family you just joined is the one you meant to be working in.
+          current_user.update!(current_family_id: invitation.family_id)
+        end
+
+        render json: {
+          family: { id: invitation.family_id, name: invitation.family.name, role: member.role }
+        }, status: :created
+      end
+
+      # One waiting for me, by id. Addressed to my mailbox and still unanswered,
+      # or it is not mine to answer.
+      def waiting_invitation
+        invitation = FamilyInvitation.addressed_to(current_user.email).find_by(id: params[:id])
+        return invitation if invitation
+
+        render_error(message: "This invitation is no longer waiting for you.",
+                     code: "invalid_invitation", status: :not_found)
+        nil
+      end
+
+      def serialize_waiting(invitation)
+        {
+          id: invitation.id,
+          role: invitation.role,
+          expires_at: invitation.expires_at,
+          family: { id: invitation.family_id, name: invitation.family.name },
+          invited_by: invitation.invited_by.full_name || invitation.invited_by.email
+        }
+      end
 
       # Empty means exactly that: they are the only member and nothing has ever
       # been put in it.

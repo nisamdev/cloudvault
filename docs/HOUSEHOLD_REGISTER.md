@@ -487,6 +487,26 @@ And the attached PDFs have a download button on the record itself. It is always
 visible rather than appearing on hover, because half the family reads this on a
 phone.
 
+### Being invited when you already have an account
+
+An invitation used to exist only as a link in an email. Somebody who already
+had an account and never opened that link had no way to find out they had been
+asked — nothing in the app knew. Pending invitations addressed to whoever is
+signed in now appear on the dashboard, with Join and No thanks on them.
+
+Answering from there needs no token. The token proves somebody controls a
+mailbox *before* they have an account; signed in as the address it was sent to,
+it proves nothing further.
+
+Two things this uncovered. Accepting still refused anyone who already belonged
+to a real family — the last place in the app enforcing one family per account,
+long after `families#create` and `select` began supporting any number, and
+after Settings started saying "you can be in as many as you like". And saying
+no needed a `declined_at` of its own: declining is an answer, cancelling is the
+inviter changing their mind, and only one of those is worth reporting back. The
+partial unique index that keeps one pending invitation per person had to be
+taught about it, or saying no once would have meant never being asked again.
+
 ## Still open, outside the numbered steps
 
 - **The design pass stopped halfway.** Records, their forms and the type picker

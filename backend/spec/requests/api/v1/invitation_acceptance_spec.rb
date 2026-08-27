@@ -43,14 +43,20 @@ RSpec.describe "Api::V1 accepting an invitation" do
       expect(invitee.reload.family_memberships.pluck(:family_id)).to eq([ family.id ])
     end
 
-    it "keeps a family that has anything in it" do
+    # Joining a second family no longer means leaving the first: an account has
+    # stood in any number of them since accounts stopped requiring one. What is
+    # discarded is only the empty artefact above, never a family with a life of
+    # its own.
+    it "keeps a family that has anything in it, and joins anyway" do
       create(:stored_file, user: invitee, family: accidental)
       invitation = invite
 
       post "/api/v1/invitations/#{invitation.raw_token}/accept", headers: auth_headers_for(invitee)
 
-      expect(response).to have_http_status(:conflict)
+      expect(response).to have_http_status(:created)
       expect(Family.exists?(accidental.id)).to be true
+      expect(invitee.reload.family_memberships.pluck(:family_id))
+        .to contain_exactly(accidental.id, family.id)
     end
 
     it "keeps a family that somebody else has joined" do
@@ -59,7 +65,7 @@ RSpec.describe "Api::V1 accepting an invitation" do
 
       post "/api/v1/invitations/#{invitation.raw_token}/accept", headers: auth_headers_for(invitee)
 
-      expect(response).to have_http_status(:conflict)
+      expect(response).to have_http_status(:created)
       expect(Family.exists?(accidental.id)).to be true
     end
 
@@ -69,7 +75,18 @@ RSpec.describe "Api::V1 accepting an invitation" do
 
       post "/api/v1/invitations/#{invitation.raw_token}/accept", headers: auth_headers_for(invitee)
 
-      expect(response).to have_http_status(:conflict)
+      expect(response).to have_http_status(:created)
+      expect(Family.exists?(accidental.id)).to be true
+    end
+
+    # The family you have just joined is the one you meant to be working in.
+    it "shows the new family after joining" do
+      create(:stored_file, user: invitee, family: accidental)
+      invitation = invite
+
+      post "/api/v1/invitations/#{invitation.raw_token}/accept", headers: auth_headers_for(invitee)
+
+      expect(invitee.reload.current_family_id).to eq(family.id)
     end
   end
 

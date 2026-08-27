@@ -39,6 +39,13 @@ Rails.application.routes.draw do
 
       # Invitation acceptance is addressed by token, not by id: the recipient
       # may not have an account yet when they follow the link.
+      # Invitations waiting for the signed-in person. Distinct paths from the
+      # token ones below, which are how somebody answers before they have an
+      # account at all.
+      get  "invitations/mine",             to: "invitations#mine"
+      post "invitations/mine/:id/accept",  to: "invitations#accept_mine"
+      post "invitations/mine/:id/decline", to: "invitations#decline_mine"
+
       get  "invitations/:token",        to: "invitations#show",   as: :invitation
       post "invitations/:token/accept", to: "invitations#accept", as: :accept_invitation
 

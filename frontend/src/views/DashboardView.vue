@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useFilesStore } from "@/stores/files";
 import { useLibraryStore } from "@/stores/library";
+import InvitationBanner from "@/components/family/InvitationBanner.vue";
 import UploadZone from "@/components/files/UploadZone.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import LabelPicker from "@/components/files/LabelPicker.vue";
@@ -770,6 +771,10 @@ async function bulkTrash(files, folders) {
 </script>
 
 <template>
+  <!-- Being asked to join a family is the first thing you should see, and the
+       one thing that used to live only in an email. -->
+  <InvitationBanner />
+
   <div class="flex gap-6">
     <!-- Folder tree. Hidden on small screens, where breadcrumbs are enough. -->
     <aside class="hidden w-56 shrink-0 lg:block">
