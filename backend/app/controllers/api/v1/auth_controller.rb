@@ -143,13 +143,17 @@ module Api
             id: membership.family_id,
             name: membership.family.name,
             role: membership.role,
+            # Being in a family whose things are shut to you is a real state,
+            # and one the screen has to be able to explain. Without this it
+            # simply shows nothing and says nothing about why.
+            can_use_vault: membership.can_use_vault?,
             storage_quota: membership.family.family_storage_quota,
             storage_used: membership.family.family_storage_used
           },
           # All of them, so the app can offer a switcher. An account may belong
           # to several families, or to none — neither is a broken state.
           families: user.family_memberships.includes(:family).map do |m|
-            { id: m.family_id, name: m.family.name, role: m.role }
+            { id: m.family_id, name: m.family.name, role: m.role, can_use_vault: m.can_use_vault? }
           end
         }
       end

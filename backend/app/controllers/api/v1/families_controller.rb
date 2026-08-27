@@ -127,6 +127,7 @@ module Api
           name: family.name,
           description: family.description,
           role: membership&.role,
+          can_use_vault: membership.nil? || membership.can_use_vault?,
           storage_quota: family.family_storage_quota,
           storage_used: family.family_storage_used,
           storage_percent_used: family.storage_percent_used,

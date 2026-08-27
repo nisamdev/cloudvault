@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, watch } from "vue";
+import NoFamilyAccessNotice from "@/components/family/NoFamilyAccessNotice.vue";
 import { RouterLink, RouterView, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useVaultStore } from "@/stores/vault";
@@ -154,6 +155,7 @@ async function handleLogout() {
       </header>
 
       <main id="main-content" class="flex-1 p-4 md:p-6">
+        <NoFamilyAccessNotice />
         <RouterView />
       </main>
 

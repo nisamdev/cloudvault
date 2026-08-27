@@ -256,6 +256,25 @@ role.
 
 The owner cannot be shut out — somebody has to be able to open the door again.
 
+**It is a door, and it only swings one way.** Shutting it stops somebody
+reaching what the family shares and stops them putting anything new in. It does
+not take back what they already put there: they shared that deliberately, and
+withdrawing their access is not the same as retracting their contribution — the
+same reasoning that leaves a departing member's scanned passports where they
+are. Nor does it remove them from the family; Remove is its own button, beside
+it. And it never touches what they own: their own files, records and private
+section are untouched, including the very thing they shared.
+
+So after shutting the door on somebody: you still see what they gave the
+family, they still see their own copy of it, they see nothing else of yours,
+they cannot add more, and they are still listed as a member. If what you want
+is their contribution gone, unshare or delete it — a separate and deliberate
+act.
+
+The family stays in their sidebar, because they are still in it. Every view of
+it being silently empty reads as a broken app rather than a decision somebody
+made, so the session carries `can_use_vault` and the screen says which it is.
+
 **A permission check that disagrees with the list beside it is the whole bug.**
 `can_view?` was gated first, and the listings still showed everything: they
 build their own SQL from `family_ids` rather than asking. Records, files, the

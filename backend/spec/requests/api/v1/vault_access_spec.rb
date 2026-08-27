@@ -83,6 +83,40 @@ RSpec.describe "Family vault access" do
       expect(PermissionChecker.can_view?(member, shared_file)).to be(true)
     end
 
+    # What somebody put into the family stays in it. They shared it
+    # deliberately, and withdrawing their *access* is not the same as
+    # retracting their *contribution* — the same reasoning that keeps a
+    # departing member's scanned passports where they are.
+    it "leaves what they already shared where it is" do
+      theirs = create(:stored_file, user: member, family: family, visibility: "family")
+
+      expect(PermissionChecker.can_view?(owner, theirs)).to be(true)
+    end
+
+    it "leaves them able to see the thing they shared, because they own it" do
+      theirs = create(:stored_file, user: member, family: family, visibility: "family")
+
+      expect(PermissionChecker.can_view?(member, theirs)).to be(true)
+    end
+
+    # A one-way door: nothing more goes in either.
+    it "stops them sharing anything new with the family" do
+      expect(PermissionChecker.can_upload_to_family?(member, family)).to be(false)
+    end
+
+    # Shutting the door is not removing somebody. Remove is its own button.
+    it "leaves them in the family" do
+      expect(family.family_members.exists?(user_id: member.id)).to be(true)
+    end
+
+    # Otherwise every family screen is silently empty and nothing says why.
+    it "tells their own session that the family is shut to them" do
+      post "/api/v1/auth/login", params: { email: member.email, password: "password123" },
+           as: :json
+
+      expect(json.dig("family", "can_use_vault")).to be(false)
+    end
+
     it "opens again when the owner says so" do
       patch "/api/v1/families/#{family.id}/members/#{membership.id}",
             params: { can_use_vault: true }, headers: auth_headers_for(owner), as: :json
