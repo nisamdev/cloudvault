@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 class User < ApplicationRecord
+  # Whose records to write about: only mine, or the household's too.
+  REMINDER_SCOPES = %w[own family].freeze
+
   has_secure_password validations: false
 
   ROLES = %w[owner admin editor viewer].freeze
@@ -9,6 +12,7 @@ class User < ApplicationRecord
   # Files stay with the family when a member leaves, so this is not dependent.
   has_many :stored_files, dependent: nil, inverse_of: :user
   has_one :private_vault, dependent: :destroy, inverse_of: :user
+  has_many :expiry_reminders, dependent: :delete_all, inverse_of: :user
   has_many :folders, dependent: nil, inverse_of: :user
   has_many :signatures, dependent: :destroy
   has_many :family_memberships, class_name: "FamilyMember", dependent: :destroy
@@ -20,6 +24,7 @@ class User < ApplicationRecord
 
   EMAIL_FORMAT = URI::MailTo::EMAIL_REGEXP
 
+  validates :reminder_scope, inclusion: { in: REMINDER_SCOPES }
   validates :email, presence: true, uniqueness: { case_sensitive: false },
             format: { with: EMAIL_FORMAT, message: "is not a valid email address" }
   validates :full_name, length: { maximum: 120 }, allow_blank: true

@@ -22,9 +22,17 @@ class UpcomingExpiries
     end
   end
 
-  # What the register shows under "coming up". Wider than the mail schedule,
-  # because a page can afford to mention something the post should not.
-  SHOWN_WITHIN_DAYS = 120
+  # How far ahead the screen looks.
+  #
+  # Derived from the schedules rather than picked, because the settings screen
+  # doubles as a preview of what would be posted: a window narrower than the
+  # longest runway would promise a letter about something it had not listed.
+  # Immigration starts writing six months out, so the screen must see at least
+  # that far.
+  SHOWN_WITHIN_DAYS = [
+    RecordTemplates::ALL.flat_map { |t| t.reminding_fields.flat_map { |f| f.remind.to_a } }.max.to_i,
+    120
+  ].max + 30
   # Something that ran out is still worth showing for a while — it is usually
   # the most urgent thing on the page.
   SHOWN_EXPIRED_FOR_DAYS = 60
@@ -32,13 +40,24 @@ class UpcomingExpiries
   class << self
     # Dates on one person's records, soonest first, for the screen.
     def for_user(user, within: SHOWN_WITHIN_DAYS)
-      records = VaultRecord.active
-                           .where(id: readable_record_ids(user))
-                           .includes(:user)
-
-      collect(records) do |due|
+      collect(records_for(user)) do |due|
         due.days <= within && due.days >= -SHOWN_EXPIRED_FOR_DAYS
       end
+    end
+
+    # What to write to one person about tonight, honouring their settings and
+    # skipping anything they have already been told.
+    def to_send(user)
+      return [] unless user.reminders_enabled?
+
+      due_for_reminder(records_for(user)).reject do |due|
+        ExpiryReminder.already_sent?(user: user, due: due)
+      end
+    end
+
+    # Everyone who might need a letter — one query rather than one per user.
+    def recipients
+      User.where(reminders_enabled: true)
     end
 
     # Dates that have crossed a step of their schedule today, for the post.
@@ -97,8 +116,13 @@ class UpcomingExpiries
       nil
     end
 
-    # Records this person can actually see: their own, plus whatever their
-    # families share.
+    # Records this person should hear about, which is narrower than what they
+    # can see: `own` means only what they added.
+    def records_for(user)
+      scope = VaultRecord.active.where(id: readable_record_ids(user)).includes(:user)
+      user.reminder_scope == "own" ? scope.where(user_id: user.id) : scope
+    end
+
     def readable_record_ids(user)
       family_ids = FamilyMember.where(user_id: user.id).pluck(:family_id)
 

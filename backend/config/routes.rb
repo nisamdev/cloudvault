@@ -126,6 +126,10 @@ Rails.application.routes.draw do
       # --- Household register -----------------------------------------------
       resources :record_templates, only: %i[index]
       resources :records, only: %i[index show create update destroy] do
+        collection do
+          # What is running out — the register banner and the settings preview.
+          get :upcoming
+        end
         get "secrets/:key/reveal", to: "record_secrets#reveal"
         get "secrets/:key/history", to: "record_secrets#history"
         get "secrets/:key/history/:version_id/reveal", to: "record_secrets#reveal_version"

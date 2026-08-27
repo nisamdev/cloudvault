@@ -4,3 +4,9 @@ purge_trash:
   class: PurgeTrashJob
   queue: maintenance
   description: "Permanently delete items past the trash retention window"
+
+expiry_reminders:
+  cron: "0 8 * * *"    # daily at 08:00 UTC — a reminder read over breakfast
+  class: SendExpiryRemindersJob
+  queue: maintenance
+  description: "Write to anyone whose records are running out"
