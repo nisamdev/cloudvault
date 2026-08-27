@@ -36,26 +36,34 @@ export function useVaultGate() {
   }
 
   /**
-   * Opens the unlock dialog when needed.
+   * Opens setup or unlock when needed.
    * @returns {Promise<boolean>} true once the section is open, false if cancelled
-   *   or if there is no private section yet.
    */
   async function ensureUnlocked() {
     if (!vault.checked) await vault.refresh();
-    if (!vault.exists) return false;
+
+    if (!vault.exists) {
+      if (!mode.value) open("setup");
+      return waitForUnlock();
+    }
+
     if (vault.unlocked) return true;
 
     if (!mode.value) open("unlock");
 
+    return waitForUnlock();
+  }
+
+  function waitForUnlock() {
     return new Promise((resolve) => {
       if (pending) {
         const prior = pending;
         pending = (value) => {
           prior(value);
-          resolve(value);
+          resolve(value && vault.unlocked);
         };
       } else {
-        pending = resolve;
+        pending = (value) => resolve(value && vault.unlocked);
       }
     });
   }

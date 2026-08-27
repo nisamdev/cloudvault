@@ -7,11 +7,6 @@ Items move out of here as they ship.
 
 ## Requested, not started
 
-### A private section, locked with a password
-Asked for 2026-08-26: a place for both files and photos that needs a password,
-and folders that can be locked. Design not settled — see the note at the bottom
-of this file.
-
 ### Utility area — document tools
 The Tools section exists. Remaining tools, in the order they are planned:
 
@@ -24,7 +19,18 @@ The Tools section exists. Remaining tools, in the order they are planned:
 - ~~**OCR**~~ — shipped: Read a document falls back to tesseract when a PDF has
   no text layer (scans). Needs `tesseract-ocr` in the API image.
 
-### Bulk actions
+### Household register (Steps 4+ — see HOUSEHOLD_REGISTER.md)
+Plan: [HOUSEHOLD_REGISTER.md](./HOUSEHOLD_REGISTER.md). Done through Step 3.
+
+- **Next: Step 4** — polish remaining record types (Person, Property, Immigration,
+  Vehicle, Money, Subscription, Emergency) the way Login was done
+- Links UI — `record_links` exists in the API; no picker on the record page yet
+- Step 5 — password generator in the web app
+- Step 6 — expiry reminders
+- Steps 7–14 — vault permissions, short-term sharing, TOTP, TLS, browser-side
+  encryption, Chrome extension, `vault:backup:images`, admin
+
+### Files
 - Multi-select with shift-click ranges, then download as ZIP, label, move,
   share or trash in one action
 
@@ -41,6 +47,26 @@ The Tools section exists. Remaining tools, in the order they are planned:
 ---
 
 ## Shipped
+
+- **`vault:backup` — the cheap half** (2026-08-26) — Step 3 of the household
+  register plan. `bin/rails vault:backup` writes an encrypted `.vault` file:
+  full Postgres dump plus document blobs (`file_type: file`), not the photo
+  gallery. Passphrase via `BACKUP_PASSPHRASE` or a prompt; output under
+  `tmp/backups` or `BACKUP_OUTPUT_DIR`. Envelope encryption reuses `VaultCipher`.
+  `vault:backup:images` is still Step 13.
+
+- **Household register Steps 1–2** (2026-08-26) — records as facts, not just
+  files. Tables (`vault_records`, attachments, links, `record_secrets`,
+  `secret_versions`), eight household templates plus a **Login** type (name,
+  site URL, username, password), Register card grid with favicons/initials,
+  create/detail pages, link/upload from My Files, reveal/copy/history for
+  secrets sealed with the private-section vault key (key-agnostic `kdf`
+  format). Routes under `/household` so they do not collide with auth signup.
+
+- **Private section** (2026-08-26) — passphrase-locked place for files and
+  folders; AES-256-GCM with a vault key sealed by scrypt; unlock token in
+  `X-Vault-Key` (memory only, not a cookie). Settled as real encryption, not
+  a soft hide.
 
 - **Read a document** (2026-08-26) — the text inside a PDF, and the handful of
   things in it worth reading: labelled fields, dates, amounts, references,
@@ -132,9 +158,6 @@ Anything touching PDFs should reuse the version history that already exists —
 signing, merging and page edits are all destructive operations where keeping the
 original matters more than saving space.
 
-A locked section has to decide what "locked" means before any of it is built:
-hidden and refused by the API unless the session has been unlocked, or actually
-encrypted with a key derived from the passphrase. The first survives a forgotten
-password and keeps thumbnails, previews and search working; the second also
-survives somebody getting the disk, and loses the files for good if the
-passphrase is forgotten. That trade is the owner's to make, not ours.
+The private section chose real encryption (vault key + passphrase). A forgotten
+passphrase without the recovery key loses those files for good — that is the
+trade, and it is intentional.

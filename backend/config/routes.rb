@@ -123,6 +123,14 @@ Rails.application.routes.draw do
       resources :labels, only: %i[index create update destroy]
       resources :signatures, only: %i[index create update destroy]
 
+      # --- Household register -----------------------------------------------
+      resources :record_templates, only: %i[index]
+      resources :records, only: %i[index show create update destroy] do
+        get "secrets/:key/reveal", to: "record_secrets#reveal"
+        get "secrets/:key/history", to: "record_secrets#history"
+        get "secrets/:key/history/:version_id/reveal", to: "record_secrets#reveal_version"
+      end
+
       # Drawing a signature on a phone, same pattern as scanning: the token in
       # the URL is the credential and can only add a signature.
       sig_token = { token: %r{[^/]+} }

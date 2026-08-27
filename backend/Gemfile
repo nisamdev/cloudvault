@@ -21,6 +21,9 @@ gem "image_processing", "~> 1.2"
 # Streams ZIP archives entry by entry, so downloading a whole folder never
 # buffers the archive in memory or on disk.
 gem "zip_kit", "~> 6.3"
+# zip_kit only writes. Restoring a backup means reading one back, which is what
+# rubyzip is for — the two do opposite halves of the same job.
+gem "rubyzip", "~> 2.3", require: "zip"
 gem "ruby-vips", "~> 2.2"
 # Reads EXIF: capture time, GPS coordinates and camera. Pure Ruby, no bindings.
 gem "exifr", "~> 1.4"
