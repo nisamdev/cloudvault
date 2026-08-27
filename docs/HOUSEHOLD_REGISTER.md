@@ -299,6 +299,18 @@ build, and once the extension holds the key that stops being a promise.
 
 ---
 
+## Still open, outside the numbered steps
+
+- **The design pass stopped halfway.** Records, their forms and the type picker
+  were rebuilt; the register grid, Private, Tools and My Files still carry the
+  older look. Two visual languages in one app.
+- **`RecordPermissions` duplicates `PermissionChecker`.** It reads roles and
+  visibility directly, which is what commit `cfe02ad` removed everywhere else.
+  Fold it back when step 8 adds grants to records.
+- **`vault:backup:images` is a stub** that aborts. Step 13.
+- **`dad@smith.com` holds test data** — nine records and a private section whose
+  passphrase came from a test script. Wipe before using that account for real.
+
 ## The order
 
 | # | Step | Size | Status |
@@ -306,9 +318,9 @@ build, and once the extension holds the key that stops being a promise.
 | 1 | The records model — tables, templates, the record page ✅ | 2–3 days | **Done** (2026-08-26) — plus Login type, attachments, Register grid |
 | 2 | Secrets in records — reveal, copy, history, key-agnostic format ✅ | 1–2 days | **Done** (2026-08-26) |
 | 3 | `vault:backup` + `vault:restore` — the cheap half, both directions ✅ | half a day | **Done** (2026-08-26) |
-| 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | Next |
-| 5 | The generator, in the web app ✅ | half a day | |
-| 6 | Expiry reminders | 1–2 days | |
+| 4 | All nine types ✅ — each one created and read back, expiry dates parse | 1–2 days | **Done** (2026-08-27) |
+| 5 | The generator ✅ — in every secret field, and standalone in Tools | half a day | **Done** (2026-08-27) |
+| 6 | Expiry reminders | 1–2 days | **Parked** — schema + per-field schedules in, nothing sends yet |
 | 7 | Who can use the vault — the per-person switch | half a day | |
 | 8 | Short-term sharing — expiring grants, burn-after-reading links | 2 days | |
 | 9 | TOTP on login | 1 day | |
