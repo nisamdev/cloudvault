@@ -776,7 +776,15 @@ async function removeMember(member) {
                       Showing now
                     </span>
                   </p>
-                  <p class="text-caption capitalize text-gray-500">{{ entry.role }}</p>
+                  <p class="text-caption text-gray-500">
+                    <span class="capitalize">{{ entry.role }}</span>
+                    <!-- Still a member, still in the list, and nothing in it
+                         reachable. Saying which beats a family that appears to
+                         be empty. -->
+                    <span v-if="entry.can_use_vault === false" class="ml-1 text-warning-600">
+                      · no access to what it shares
+                    </span>
+                  </p>
                 </div>
 
                 <button

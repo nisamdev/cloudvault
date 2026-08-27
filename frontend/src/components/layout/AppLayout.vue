@@ -135,8 +135,14 @@ async function handleLogout() {
           <i class="fas fa-bars" aria-hidden="true"></i>
         </button>
 
-        <span v-if="auth.family" class="truncate text-body font-medium text-gray-700">
-          {{ auth.family.name }}
+        <span v-if="auth.family" class="flex min-w-0 items-center gap-1.5">
+          <span class="truncate text-body font-medium text-gray-700">{{ auth.family.name }}</span>
+          <i
+            v-if="auth.family.can_use_vault === false"
+            class="fas fa-lock shrink-0 text-caption text-warning-600"
+            title="This family's shared things aren't open to you"
+            aria-label="This family's shared things aren't open to you"
+          ></i>
         </span>
 
         <div class="flex-1"></div>
