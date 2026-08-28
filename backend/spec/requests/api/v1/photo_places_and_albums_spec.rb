@@ -115,3 +115,60 @@ RSpec.describe "Api::V1 photo places and albums" do
     end
   end
 end
+
+# The bug that made 78 photographs unreachable: filed as documents while
+# sitting in a photo album, they were shown by neither section — Photos does
+# not list documents, and My Files does not show album folders.
+RSpec.describe "Api::V1 files changing sides" do
+  let(:user) { create(:user) }
+
+  def album
+    @album ||= Folder.default_for(user, kind: "photo")
+  end
+
+  it "takes a picture out of its album when it becomes a document" do
+    picture = create(:stored_file, user: user, file_type: "image", mime_type: "image/jpeg",
+                                   folder_id: album.id)
+
+    patch "/api/v1/files/#{picture.id}", params: { file_type: "file" },
+          headers: auth_headers_for(user), as: :json
+
+    expect(response).to have_http_status(:ok)
+    expect(picture.reload.file_type).to eq("file")
+    expect(picture.folder_id).to be_nil
+  end
+
+  it "takes a document out of its folder when it becomes a picture" do
+    documents = create(:folder, user: user, kind: "file", name: "Scans")
+    picture = create(:stored_file, user: user, file_type: "file", mime_type: "image/jpeg",
+                                   folder_id: documents.id)
+
+    patch "/api/v1/files/#{picture.id}", params: { file_type: "image" },
+          headers: auth_headers_for(user), as: :json
+
+    expect(picture.reload.file_type).to eq("image")
+    expect(picture.folder_id).to be_nil
+  end
+
+  it "leaves the folder alone when it already suits" do
+    picture = create(:stored_file, user: user, file_type: "file", mime_type: "image/jpeg",
+                                   folder_id: album.id)
+    patch "/api/v1/files/#{picture.id}", params: { file_type: "image" },
+          headers: auth_headers_for(user), as: :json
+
+    expect(picture.reload.folder_id).to eq(album.id)
+  end
+
+  # Whichever way it went, it must be reachable from one of the two screens.
+  it "leaves it findable afterwards" do
+    picture = create(:stored_file, user: user, file_type: "image", mime_type: "image/jpeg",
+                                   folder_id: album.id, name: "Receipt.jpg")
+
+    patch "/api/v1/files/#{picture.id}", params: { file_type: "file" },
+          headers: auth_headers_for(user), as: :json
+    get "/api/v1/files", params: { file_type: "file", folder_id: "" },
+        headers: auth_headers_for(user)
+
+    expect(json["files"].map { |f| f["name"] }).to include("Receipt.jpg")
+  end
+end

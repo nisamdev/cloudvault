@@ -160,6 +160,12 @@ module Api
 
           attrs["file_type"] = chosen
           attrs["file_type_pinned"] = true
+          # Albums and document folders are separate trees, and a file that has
+          # changed sides can no longer be in the one it was in: Photos would
+          # not list it, and My Files would not show the folder holding it, so
+          # it would be reachable from nowhere at all. It comes out of the
+          # folder, which is the one place both sections can see.
+          attrs["folder_id"] = nil if leaving_its_tree?(chosen)
         end
 
         # A move must land somewhere the caller can reach. Blank means the root.
@@ -1162,6 +1168,14 @@ module Api
 
         payload[:download_url] = "#{Rails.configuration.x.api_url}/api/v1/files/#{file.id}/download" if detailed
         payload
+      end
+
+      # Whether this file's folder belongs to the other section now.
+      def leaving_its_tree?(chosen)
+        return false if @file.folder_id.blank?
+
+        wanted = chosen == "image" ? "photo" : "file"
+        Folder.where(id: @file.folder_id).where.not(kind: wanted).exists?
       end
 
       def thumbnail_url_for(file)

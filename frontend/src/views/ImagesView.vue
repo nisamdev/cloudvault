@@ -231,7 +231,8 @@ const bulkActions = computed(() => [
     label: selectedCount.value > 1 ? "Download ZIP" : "Download",
     icon: selectedCount.value > 1 ? "fa-file-zipper" : "fa-download",
   },
-  { id: "document", label: "Move to My Files", icon: "fa-file-lines" },
+  { id: "album", label: "Put in an album…", icon: "fa-folder" },
+  { id: "document", label: "These aren't photos", icon: "fa-file-lines" },
   vault.exists && { id: "private", label: "Move to Private", icon: "fa-lock" },
   { id: "trash", label: "Move to trash", icon: "fa-trash", danger: true },
 ].filter(Boolean));
@@ -462,6 +463,31 @@ function onPhotoClick(event, file) {
   previewFile.value = file;
 }
 
+/** Which album to file into, asked once for however many are selected. */
+async function pickAlbum(count) {
+  const choices = albums.value.map((a) => `${a.id}: ${a.name}`).join("\n");
+  const answer = await dialog.prompt({
+    title: `Put ${count} ${count === 1 ? "photo" : "photos"} in which album?`,
+    label: `Type the name of an album, or a new one.\n${choices}`,
+    placeholder: albums.value[0]?.name ?? "Holidays",
+    confirmLabel: "File them",
+  });
+  const wanted = answer?.trim();
+  if (!wanted) return null;
+
+  const existing = albums.value.find((a) => a.name.toLowerCase() === wanted.toLowerCase());
+  if (existing) return existing.id;
+
+  try {
+    const { data } = await api.post("/folders", { folder: { name: wanted, kind: "photo" } });
+    await loadAlbums();
+    return data.folder.id;
+  } catch (e) {
+    toast.show({ message: e.userMessage });
+    return null;
+  }
+}
+
 /** "Put in…" for every album this photograph is not already in. */
 function albumChoices(photos) {
   const from = photos[0]?.folder_id ?? null;
@@ -501,15 +527,38 @@ async function runBulk(actionId) {
         await filesStore.downloadZip(photos.map((p) => p.id));
         toast.show({ message: `Downloading ${photos.length} photos as ZIP` });
       }
+    } else if (actionId === "album") {
+      const target = await pickAlbum(photos.length);
+      if (!target) return;
+
+      await moveToAlbum(photos, target);
+      toast.show({
+        message: `${photos.length} ${photos.length === 1 ? "photo" : "photos"} filed`,
+      });
+      clearSelection();
     } else if (actionId === "document") {
+      // This takes them out of the gallery altogether, which is not what
+      // "move to My Files" sounded like to the person who pressed it.
+      const ok = await dialog.confirm({
+        title: `Treat ${photos.length} ${photos.length === 1 ? "photo" : "photos"} as documents?`,
+        message:
+          "They leave the gallery and appear in My Files instead — for pictures of paperwork " +
+          "rather than pictures of people.",
+        detail: "Nothing is deleted. You can send them back from My Files at any time.",
+        confirmLabel: "Move them",
+      });
+      if (!ok) return;
+
       for (const photo of photos) {
         await filesStore.setFileType(photo, "file");
       }
       toast.show({
-        message: `Moved ${photos.length} ${photos.length === 1 ? "photo" : "photos"} to My Files`,
+        message: `Moved ${photos.length} to My Files`,
+        detail: "Find them under My Files, not in an album.",
       });
       clearSelection();
       await load();
+      await loadAlbums();
     } else if (actionId === "private") {
       if (!(await vaultGate.ensureUnlocked())) return;
 
