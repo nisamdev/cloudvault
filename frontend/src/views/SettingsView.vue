@@ -373,21 +373,20 @@ async function changeRole(member, role) {
   }
 }
 
-/** What the family kept when somebody left, in words rather than a count. */
+/** What went home with them, in words rather than a count. */
 function keptLabel(kept) {
   if (!kept) return undefined;
 
   const parts = [
     [kept.files, "file", "files"],
     [kept.records, "record", "records"],
-    [kept.folders, "folder", "folders"],
   ]
     .filter(([n]) => n > 0)
     .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
 
   if (!parts.length) return "They had shared nothing with the family.";
 
-  return `${parts.join(", ")} they shared are now yours.`;
+  return `${parts.join(" and ")} they shared went back to them.`;
 }
 
 async function removeMember(member) {
@@ -395,8 +394,9 @@ async function removeMember(member) {
     title: `Remove ${member.user.full_name}?`,
     message: "They lose access to everything the family shares, straight away.",
     detail:
-      "Anything they shared with the family stays and becomes yours — the passports they " +
-      "scanned do not leave with them. Their own private files stay theirs.",
+      "Anything they shared goes back to being theirs and stops being shared — you will no " +
+      "longer see it. Nothing is deleted. Copy anything the household needs to keep before " +
+      "you remove them.",
     confirmLabel: "Remove",
     danger: true,
   });

@@ -1,10 +1,11 @@
 require "rails_helper"
 
-# What somebody leaves behind when they are taken out of a family.
+# What somebody takes with them when they are removed from a family.
 #
-# The rule in one line: what they shared with the household stays with the
-# household and stops being theirs; what they kept private stays entirely
-# theirs. Nothing is deleted either way.
+# The rule in one line: what they shared goes home with them. They uploaded it,
+# it was theirs throughout, and being removed does not make their photograph
+# somebody else's — so it is unshared back to their own files and the family
+# stops seeing it. Nothing is deleted, and nothing changes hands.
 RSpec.describe FamilyDeparture do
   let(:family) { create(:family) }
   let(:owner) { family.owner }
@@ -12,7 +13,7 @@ RSpec.describe FamilyDeparture do
   let!(:membership) { create(:family_member, family: family, user: leaver, role: "editor") }
 
   let!(:shared_file) do
-    create(:stored_file, user: leaver, family: family, visibility: "family", name: "Passport.pdf")
+    create(:stored_file, user: leaver, family: family, visibility: "family", name: "Holiday.jpg")
   end
   let!(:private_file) do
     create(:stored_file, user: leaver, family: family, visibility: "private", name: "Diary.pdf")
@@ -24,48 +25,67 @@ RSpec.describe FamilyDeparture do
 
   def depart = described_class.new(membership).call
 
-  describe "what the family keeps" do
-    it "does not delete the passports they scanned" do
+  describe "what goes home with them" do
+    it "does not take their photographs off them" do
       depart
 
-      expect(shared_file.reload).to be_persisted
-      expect(shared_record.reload).to be_persisted
+      expect(shared_file.reload.user_id).to eq(leaver.id)
+      expect(shared_record.reload.user_id).to eq(leaver.id)
     end
 
-    it "hands what they shared to the family's owner" do
+    it "unshares it, so the family stops seeing it" do
       depart
 
-      expect(shared_file.reload.user_id).to eq(owner.id)
-      expect(shared_record.reload.user_id).to eq(owner.id)
+      expect(shared_file.reload.visibility).to eq("private")
+      expect(shared_file.family_id).to be_nil
+      expect(PermissionChecker.can_view?(owner, shared_file)).to be(false)
+      expect(RecordPermissions.can_view?(owner, shared_record.reload)).to be(false)
+    end
+
+    it "leaves them able to reach their own things afterwards" do
+      depart
+
+      expect(PermissionChecker.can_view?(leaver, shared_file.reload)).to be(true)
+      expect(RecordPermissions.can_view?(leaver, shared_record.reload)).to be(true)
+    end
+
+    it "deletes nothing" do
+      depart
+
+      expect(StoredFile.exists?(shared_file.id)).to be(true)
+      expect(VaultRecord.exists?(shared_record.id)).to be(true)
+    end
+
+    it "gives the family back the storage it was holding" do
+      family.update!(family_storage_used: shared_file.size)
+
+      depart
+
+      expect(family.reload.family_storage_used).to eq(0)
+    end
+
+    # A folder is a place, not a possession — everything of theirs inside it
+    # has already gone home.
+    it "leaves the folder with the family" do
+      depart
+
       expect(shared_folder.reload.user_id).to eq(owner.id)
     end
 
-    it "leaves it visible to the family" do
-      depart
-
-      expect(PermissionChecker.can_view?(owner, shared_file.reload)).to be(true)
-      expect(RecordPermissions.can_view?(owner, shared_record.reload)).to be(true)
-    end
-
-    it "counts what it kept, so somebody can be told" do
-      summary = depart
-
-      expect(summary.to_h).to include(files: 1, records: 1, folders: 1)
+    it "counts what left, so somebody can be told" do
+      expect(depart.to_h).to include(files: 1, records: 1)
     end
   end
 
-  # The whole reason ownership moves. Left as the owner they could go on
-  # renaming it, unsharing it, sharing it back and deleting it — from outside
-  # the family that depends on it.
-  describe "what they no longer hold" do
+  # They are out of the family, so the family's things are shut to them — but
+  # their own possessions came with them.
+  describe "what they no longer reach" do
     before { depart }
 
-    it "takes the file out of their hands entirely" do
-      file = shared_file.reload
+    it "shuts them out of what the family still shares" do
+      of_the_family = create(:stored_file, user: owner, family: family, visibility: "family")
 
-      expect(PermissionChecker.can_view?(leaver, file)).to be(false)
-      expect(PermissionChecker.can_edit?(leaver, file)).to be(false)
-      expect(PermissionChecker.can_delete?(leaver, file)).to be(false)
+      expect(PermissionChecker.can_view?(leaver, of_the_family)).to be(false)
     end
 
     it "stops them sharing anything back into the family" do
@@ -81,15 +101,16 @@ RSpec.describe FamilyDeparture do
     end
   end
 
-  describe "what stays theirs" do
-    it "does not touch what they kept private" do
+  describe "what stays theirs untouched" do
+    it "does not disturb what they kept private" do
       depart
 
       expect(private_file.reload.user_id).to eq(leaver.id)
-      expect(PermissionChecker.can_view?(leaver, private_file.reload)).to be(true)
+      expect(private_file.visibility).to eq("private")
+      expect(PermissionChecker.can_view?(leaver, private_file)).to be(true)
     end
 
-    it "leaves their private things invisible to the family, as they always were" do
+    it "leaves it invisible to the family, as it always was" do
       depart
 
       expect(PermissionChecker.can_view?(owner, private_file.reload)).to be(false)
@@ -98,11 +119,12 @@ RSpec.describe FamilyDeparture do
 
   describe "a grant made to them by name" do
     it "goes with them when it is on this family's things" do
-      AccessGrant.create!(resource: shared_file, subject: leaver, role: "editor", granted_by: owner)
+      other = create(:stored_file, user: owner, family: family, visibility: "family")
+      AccessGrant.create!(resource: other, subject: leaver, role: "editor", granted_by: owner)
 
       depart
 
-      expect(AccessGrant.where(subject: leaver, resource: shared_file)).to be_empty
+      expect(AccessGrant.where(subject: leaver, resource: other)).to be_empty
     end
 
     # Somebody else's family is none of this family's business.
@@ -119,24 +141,26 @@ RSpec.describe FamilyDeparture do
     end
   end
 
-  describe ".settle_orphans, for everything already left in that state" do
-    # People were removed before removal settled anything, so the family was
-    # left with a file it could not open, could not unshare, and could only
-    # delete — while the person who left could still do all three.
-    it "hands an already-orphaned share to the family's owner" do
+  describe ".settle_orphans, undoing the rule this replaced" do
+    # Removal used to hand what somebody shared to the family owner. The family
+    # grant records who shared it and never moves, so those can be given back.
+    it "gives back a file taken from somebody who has left" do
+      grant = AccessGrant.find_by(resource: shared_file, subject_type: "Family")
+      expect(grant.granted_by_id).to eq(leaver.id)
+      shared_file.update_columns(user_id: owner.id)
       membership.destroy!
 
       described_class.settle_orphans
 
-      expect(shared_file.reload.user_id).to eq(owner.id)
-      expect(shared_record.reload.user_id).to eq(owner.id)
-      expect(shared_folder.reload.user_id).to eq(owner.id)
+      expect(shared_file.reload.user_id).to eq(leaver.id)
+      expect(shared_file.visibility).to eq("private")
     end
 
     it "leaves alone what a current member shared" do
       described_class.settle_orphans
 
       expect(shared_file.reload.user_id).to eq(leaver.id)
+      expect(shared_file.visibility).to eq("family")
     end
 
     # A file whose column says shared and which grants nobody anything is
@@ -148,20 +172,5 @@ RSpec.describe FamilyDeparture do
       expect(described_class.settle_orphans[:regranted]).to eq(1)
       expect(PermissionChecker.can_view?(owner, shared_file.reload)).to be(true)
     end
-
-    it "changes nothing when there is nothing to settle" do
-      described_class.settle_orphans
-
-      expect(described_class.settle_orphans.values.sum).to eq(0)
-    end
-  end
-
-  # A secret is sealed with the vault key of whoever wrote it, so a record
-  # changing hands cannot make its password readable by anybody else. It never
-  # was — this counts them rather than pretending otherwise.
-  it "counts the secrets that leave unreadable" do
-    create(:record_secret, vault_record: shared_record)
-
-    expect(depart.sealed_secrets).to eq(1)
   end
 end

@@ -539,37 +539,30 @@ Removal is its own button beside the vault switch, labelled with the word for
 it — it was a bare red icon sitting after a dropdown and a tick box, and read
 as decoration.
 
-What somebody leaves behind follows one rule: **what they shared with the
-household stays with the household and stops being theirs; what they kept
-private stays entirely theirs.** Nothing is deleted either way.
+**What they shared goes home with them.** They uploaded it, it was theirs
+throughout, and being removed from a family does not make their photograph
+somebody else's. It is unshared back to their own files, whole and still
+theirs, and the family stops seeing it. Nothing is deleted. Their private
+things are not touched at all.
 
-The second half of that was missing, and the code comment claimed otherwise.
-"What changes is that they can no longer reach them" was simply false: a
-removed person still *owned* everything they had shared, so they went on being
-able to see it, rename it, unshare it, share it back, and delete it — from
-outside the family that depended on it. Ownership of the shared half now passes
-to whoever owns the family, along with their family folders, and any grant
-standing in their name on this family's things is revoked. Their `current_family`
-stops pointing at a family they are not in.
+This is the second answer to that question. The first was that the household
+kept what it had been given — which reads well, and was chosen deliberately,
+until you watch it happen: the person who took the photograph loses it and the
+person who removed them keeps it. Whatever the argument for a household keeping
+the passports somebody scanned for it, it is not worth taking their own
+pictures off them. If the household needs to keep something, copy it before
+removing them; the dialog says so.
 
-Two things went wrong here rather than one, and only the first was about
-removal. The second is that a file's `visibility` column and its access grant
-can drift apart. The grant is what `PermissionChecker` actually reads; the
-column is what every listing queries. A file saying "shared with the family"
-while granting nobody anything therefore appears on every family screen and
-opens for none of them — and because it is not yours, you cannot unshare it
-either. The only button left that does anything is Delete, which is exactly how
-it was reported.
+`rake families:settle_departures` undoes the first rule wherever it already
+ran. The family grant records who shared each file in `granted_by` and never
+moves, so anything taken from somebody who has since left can be handed back
+and unshared, as it should have been at the time. The same task repairs any
+file whose visibility column and access grant have drifted apart.
 
-`rake families:settle_departures` puts both right and is safe to run twice: it
-hands orphaned shares to the family owner and re-grants any file whose column
-and grant have come apart.
-
-One thing this cannot fix, and does not pretend to: a record secret is sealed
-with the vault key of whoever wrote it, so a record changing hands does not make
-its password readable by the new owner. It never was readable by anybody else —
-`FamilyDeparture` counts those rather than implying otherwise. Shared family
-credentials that more than one person can actually open wait on Step 11.
+The half of the original rule that stands is the half about control: a removed
+person must not keep the keys to what the family is still using. They no longer
+do — because what they might have controlled has gone with them, and what stays
+is the family's own.
 
 ### Being invited when you already have an account
 

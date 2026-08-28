@@ -54,18 +54,16 @@ namespace :records do
 end
 
 namespace :families do
-  # People were removed from families before removal settled what they left
-  # behind, so their contributions are still theirs: the family sees a file it
-  # cannot open and cannot unshare, and the person who left can still delete
-  # it. Safe to run twice.
-  desc "Hand orphaned family shares to the family owner, and repair drifted grants"
+  # Removal used to hand what somebody shared to the family owner, which took
+  # people's own photographs off them. This gives those back — the family grant
+  # records who shared each one — and repairs any file whose visibility column
+  # and access grant have drifted apart. Safe to run twice.
+  desc "Give back shares taken from departed members, and repair drifted grants"
   task settle_departures: :environment do
     result = FamilyDeparture.settle_orphans
 
-    puts "  files handed over   : #{result[:files]}"
-    puts "  records handed over : #{result[:records]}"
-    puts "  folders handed over : #{result[:folders]}"
-    puts "  grants repaired     : #{result[:regranted]}"
+    puts "  given back to whoever shared them : #{result[:given_back]}"
+    puts "  grants repaired                   : #{result[:regranted]}"
     puts result.values.sum.zero? ? "Nothing needed settling." : "Settled."
   end
 end
