@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_28_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -260,6 +260,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_140000) do
     t.datetime "created_at", null: false
     t.integer "download_count", default: 0, null: false
     t.datetime "expires_at"
+    t.bigint "folder_id"
     t.datetime "last_accessed_at"
     t.integer "max_downloads"
     t.string "password_digest"
@@ -269,13 +270,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_140000) do
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.bigint "vault_record_id"
+    t.index ["folder_id", "revoked_at"], name: "index_shared_links_on_folder_id_and_revoked_at"
+    t.index ["folder_id"], name: "index_shared_links_on_folder_id"
     t.index ["stored_file_id", "revoked_at"], name: "index_shared_links_on_stored_file_id_and_revoked_at"
     t.index ["stored_file_id"], name: "index_shared_links_on_stored_file_id"
     t.index ["token_digest"], name: "index_shared_links_on_token_digest", unique: true
     t.index ["user_id"], name: "index_shared_links_on_user_id"
     t.index ["vault_record_id", "revoked_at"], name: "index_shared_links_on_vault_record_id_and_revoked_at"
     t.index ["vault_record_id"], name: "index_shared_links_on_vault_record_id"
-    t.check_constraint "(stored_file_id IS NULL) <> (vault_record_id IS NULL)", name: "shared_links_one_subject"
+    t.check_constraint "num_nonnulls(stored_file_id, vault_record_id, folder_id) = 1", name: "shared_links_one_subject"
   end
 
   create_table "signatures", force: :cascade do |t|
@@ -407,6 +410,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_140000) do
   add_foreign_key "refresh_tokens", "refresh_tokens", column: "replaced_by_id"
   add_foreign_key "refresh_tokens", "users"
   add_foreign_key "secret_versions", "record_secrets"
+  add_foreign_key "shared_links", "folders"
   add_foreign_key "shared_links", "stored_files"
   add_foreign_key "shared_links", "users"
   add_foreign_key "shared_links", "vault_records"

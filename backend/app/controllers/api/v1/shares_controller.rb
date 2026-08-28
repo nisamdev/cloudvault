@@ -122,6 +122,8 @@ module Api
         @subject =
           if params[:record_id].present?
             VaultRecord.active.find(params[:record_id])
+          elsif params[:folder_id].present?
+            Folder.active.find(params[:folder_id])
           else
             StoredFile.find(params[:file_id])
           end
@@ -132,10 +134,17 @@ module Api
                      code: "not_found", status: :not_found)
       end
 
-      def subject_key = @subject.is_a?(VaultRecord) ? :vault_record_id : :stored_file_id
+      def subject_key
+        case @subject
+        when VaultRecord then :vault_record_id
+        when Folder then :folder_id
+        else :stored_file_id
+        end
+      end
 
       def may_view?(subject)
         return RecordPermissions.can_view?(current_user, subject) if subject.is_a?(VaultRecord)
+        return PermissionChecker.can_view_folder?(current_user, subject) if subject.is_a?(Folder)
 
         PermissionChecker.can_view?(current_user, subject)
       end
@@ -145,6 +154,8 @@ module Api
       def may_share?(subject)
         return false if subject.nil?
         return RecordPermissions.can_edit?(current_user, subject) if subject.is_a?(VaultRecord)
+        # An album is somebody's own, so sharing it is theirs to decide.
+        return subject.user_id == current_user.id if subject.is_a?(Folder)
 
         PermissionChecker.can_share?(current_user, subject)
       end
@@ -153,6 +164,17 @@ module Api
       # one; for a record share it must be one of that record's own documents,
       # or the link becomes a way to read the whole vault.
       def shared_file
+        if @link.for_album?
+          photo = @link.album_photos.find_by(id: params[:file_id])
+          if photo.nil?
+            render_error(message: "That photo is not part of this album.",
+                         code: "not_found", status: :not_found)
+            return nil
+          end
+
+          return photo
+        end
+
         return @link.stored_file unless @link.for_record?
 
         file = @link.vault_record.stored_files.find_by(id: params[:file_id])
@@ -171,10 +193,38 @@ module Api
         base = {
           requires_password: link.password_protected?,
           expires_at: link.expires_at,
-          kind: link.for_record? ? "record" : "file"
+          kind: if link.for_record? then "record"
+                elsif link.for_album? then "album"
+                else "file"
+                end
         }
 
-        link.for_record? ? base.merge(record: shared_record(link.vault_record)) : base.merge(file: shared_file_summary(link.stored_file))
+        return base.merge(record: shared_record(link.vault_record)) if link.for_record?
+        return base.merge(album: shared_album(link)) if link.for_album?
+
+        base.merge(file: shared_file_summary(link.stored_file))
+      end
+
+      # An album and the photographs in it, as anybody holding the link sees it.
+      def shared_album(link)
+        photos = link.album_photos
+
+        {
+          name: link.folder.name,
+          shared_by: link.folder.user.full_name || link.folder.user.email,
+          count: photos.size,
+          photos: photos.map do |photo|
+            {
+              id: photo.id,
+              name: photo.name,
+              size: photo.size,
+              taken_at: photo.taken_at,
+              place_name: photo.place_name,
+              width: photo.image_width,
+              height: photo.image_height
+            }
+          end
+        }
       end
 
       def shared_record(record)
@@ -208,6 +258,11 @@ module Api
 
       # One row in "links I have out", whichever kind it is.
       def subject_summary(link)
+        if link.for_album?
+          return { album: { id: link.folder_id, name: link.folder.name,
+                            count: link.album_photos.size } }
+        end
+
         return { file: shared_file_summary(link.stored_file).merge(id: link.stored_file_id) } unless link.for_record?
 
         record = link.vault_record

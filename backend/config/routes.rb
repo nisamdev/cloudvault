@@ -109,6 +109,8 @@ Rails.application.routes.draw do
 
       resources :folders, only: %i[index show create update destroy] do
         resources :grants, only: %i[index create]
+        # A timed, read-only link to an album and the photographs in it.
+        resources :shares, only: %i[index create]
         collection do
           get :trashed
         end

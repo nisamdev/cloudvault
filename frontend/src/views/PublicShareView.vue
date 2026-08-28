@@ -31,6 +31,8 @@ onMounted(async () => {
 
 /** A link to a record shows its details and every document on it. */
 const isRecord = computed(() => share.value?.kind === "record");
+/** A link to an album shows the photographs in it. */
+const isAlbum = computed(() => share.value?.kind === "album");
 
 // Photos going down a public link are cleaned of where they were taken, and a
 // HEIC has to be re-encoded to lose it — so the file that arrives is a JPEG.
@@ -78,7 +80,7 @@ function formatValue(detail) {
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-    <div :class="['w-full', isRecord ? 'max-w-2xl' : 'max-w-md']">
+    <div :class="['w-full', isRecord || isAlbum ? 'max-w-3xl' : 'max-w-md']">
       <div class="mb-6 flex items-center justify-center gap-2">
         <i class="fas fa-cloud text-2xl text-primary-600" aria-hidden="true"></i>
         <span class="text-h3 font-bold text-gray-800">CloudVault</span>
@@ -89,6 +91,74 @@ function formatValue(detail) {
           <i class="fas fa-circle-notch fa-spin text-2xl text-gray-400" aria-hidden="true"></i>
           <p class="mt-3 text-body text-gray-500">Opening what was shared with you…</p>
         </div>
+
+        <!-- An album: the photographs in it, and a way to keep them. -->
+        <template v-else-if="isAlbum">
+          <p class="text-caption uppercase tracking-wider text-gray-500">Shared album</p>
+          <h1 class="mt-1 break-words text-h2 font-bold text-gray-800">{{ share.album.name }}</h1>
+          <p class="mt-1 text-body-sm text-gray-500">
+            {{ share.album.count }} {{ share.album.count === 1 ? "photo" : "photos" }} ·
+            shared by {{ share.album.shared_by }}
+          </p>
+          <p v-if="share.expires_at" class="mt-1 text-caption text-gray-400">
+            This link stops working
+            {{ new Date(share.expires_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) }}
+          </p>
+
+          <p
+            v-if="error"
+            role="alert"
+            class="mt-4 rounded-base bg-error-50 px-4 py-3 text-body-sm text-error-600"
+          >
+            {{ error }}
+          </p>
+
+          <div v-if="share.requires_password" class="mt-6 text-left">
+            <label for="share-password" class="mb-2 block text-body-sm font-medium text-gray-700">
+              This album is password protected
+            </label>
+            <input
+              id="share-password"
+              v-model="password"
+              type="password"
+              autocomplete="off"
+              placeholder="Enter password"
+              class="w-full rounded-base border border-gray-300 px-4 py-2 outline-none focus:border-transparent focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <ul class="mt-6 grid gap-3 border-t border-gray-200 pt-6 sm:grid-cols-2 lg:grid-cols-3">
+            <li
+              v-for="photo in share.album.photos"
+              :key="photo.id"
+              class="flex flex-col gap-2 rounded-base border border-gray-200 p-3 text-left"
+            >
+              <div class="min-w-0">
+                <p class="truncate text-body-sm font-medium text-gray-800">{{ photo.name }}</p>
+                <p class="truncate text-caption text-gray-500">
+                  <template v-if="photo.place_name">{{ photo.place_name }} · </template>
+                  {{ formatFileSize(photo.size) }}
+                </p>
+              </div>
+              <button
+                type="button"
+                :disabled="downloading === photo.id || (share.requires_password && !password)"
+                class="rounded-base bg-primary-600 px-3 py-1.5 text-body-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
+                @click="download(photo)"
+              >
+                <i
+                  :class="['fas mr-1.5', downloading === photo.id ? 'fa-circle-notch fa-spin' : 'fa-download']"
+                  aria-hidden="true"
+                ></i>
+                {{ downloading === photo.id ? "Preparing…" : "Download" }}
+              </button>
+            </li>
+          </ul>
+
+          <p class="mt-6 text-caption text-gray-400">
+            Read-only. The link can be withdrawn at any time.
+          </p>
+        </template>
 
         <!-- A record: its details, and every document attached to it. -->
         <template v-else-if="isRecord">

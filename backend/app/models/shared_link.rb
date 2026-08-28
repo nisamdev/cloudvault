@@ -12,6 +12,7 @@
 class SharedLink < ApplicationRecord
   belongs_to :stored_file, optional: true
   belongs_to :vault_record, optional: true
+  belongs_to :folder, optional: true
   belongs_to :user
 
   has_secure_password :password, validations: false
@@ -38,17 +39,27 @@ class SharedLink < ApplicationRecord
   end
 
   def for_record? = vault_record_id.present?
+  def for_album? = folder_id.present?
 
   # The thing being shared, whichever kind it is.
-  def subject = vault_record || stored_file
+  def subject = vault_record || folder || stored_file
 
   # A link outlives what it points at, so every use has to ask. A file goes to
   # the trash and a record is archived; either way the link is dead.
   def subject_gone?
     return true if subject.nil?
+    # A record is archived; a file and a folder are trashed. The column is the
+    # thing they have in common — Folder has no `trashed?` to ask.
     return subject.archived_at.present? if for_record?
 
-    subject.trashed?
+    subject.trashed_at.present?
+  end
+
+  # Everything an album share hands over, and nothing else.
+  def album_photos
+    return StoredFile.none unless for_album?
+
+    folder.stored_files.active.order(Arel.sql("COALESCE(taken_at, created_at) DESC"))
   end
 
   def expired? = expires_at.present? && expires_at.past?
@@ -93,8 +104,8 @@ class SharedLink < ApplicationRecord
   end
 
   def points_at_one_thing
-    return if stored_file_id.present? ^ vault_record_id.present?
+    return if [ stored_file_id, vault_record_id, folder_id ].compact.one?
 
-    errors.add(:base, "A share link points at one file or one record.")
+    errors.add(:base, "A share link points at one file, one record or one album.")
   end
 end

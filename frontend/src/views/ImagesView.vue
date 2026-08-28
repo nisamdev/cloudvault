@@ -16,6 +16,7 @@ import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
 import PhotoPlacePicker from "@/components/files/PhotoPlacePicker.vue";
 import AlbumPicker from "@/components/files/AlbumPicker.vue";
+import AlbumShareModal from "@/components/files/AlbumShareModal.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import BulkActionBar from "@/components/ui/BulkActionBar.vue";
@@ -53,6 +54,8 @@ const albums = ref([]);
 const albumId = ref(null);
 /** Photographs waiting to be filed, while the album picker is open. */
 const filing = ref(null);
+/** The album being shared, if any. */
+const sharingAlbum = ref(null);
 /** Which bulk action is actually running, so only that button spins. */
 const runningAction = ref("");
 
@@ -529,16 +532,20 @@ async function deleteAlbum(album) {
 }
 
 function albumMenu(event, album) {
-  if (album.is_default) return;
-
   contextMenu.open(event, {
+    title: album.name,
     items: [
-      { label: "Rename", icon: "fa-pen", action: () => renameAlbum(album) },
-      {
+      // Sharing a photograph at a time is not how anybody shares a holiday.
+      { label: "Share this album…", icon: "fa-share-nodes", action: () => (sharingAlbum.value = album) },
+      // The default album is where everything lands, so it is not renamed or
+      // removed — but it is still worth being able to share.
+      !album.is_default && { divider: true },
+      !album.is_default && { label: "Rename", icon: "fa-pen", action: () => renameAlbum(album) },
+      !album.is_default && {
         label: "Remove the album", icon: "fa-trash", danger: true,
         action: () => deleteAlbum(album),
       },
-    ],
+    ].filter(Boolean),
   });
 }
 
@@ -780,7 +787,7 @@ function photoMenu(event, file) {
             ? 'border-primary-600 bg-primary-50 text-primary-700'
             : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
         ]"
-        :title="album.is_default ? album.name : `${album.name} — right-click to rename or remove`"
+        :title="`${album.name} — right-click to share${album.is_default ? '' : ', rename or remove'}`"
         @click="openAlbum(album.id)"
         @contextmenu.prevent="albumMenu($event, album)"
       >
@@ -994,6 +1001,13 @@ function photoMenu(event, file) {
     <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
 
     <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
+
+    <AlbumShareModal
+      v-if="sharingAlbum"
+      :album="sharingAlbum"
+      @changed="loadAlbums"
+      @close="sharingAlbum = null"
+    />
 
     <AlbumPicker
       v-if="filing"

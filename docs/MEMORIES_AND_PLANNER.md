@@ -88,6 +88,27 @@ what keeps everything above from silting up.
 **Skip:** places, face recognition, auto-captioning, anything that needs a
 model or a third party.
 
+### Built since
+
+**Places, by hand.** Right-click a photograph, search for a place, pick it, and
+it is filed under a name you can change to whatever you would actually call it.
+That name is what searching by place searches, because with one picture in
+eighty carrying GPS it is the only thing the gallery will ever have. The search
+goes to OpenStreetMap and the confirmation map is public tile imagery; the words
+typed in the box are the only thing that leaves.
+
+**Albums**, which is what the unused label feature should have been. Folders
+with a kind on them, so an album never appears in the tree holding the mortgage.
+The first time the gallery is opened it makes a default album and takes in
+everything already loose in there, and that is what opens from then on.
+
+**Sharing a whole album**, both ways. With the family it is a single grant on
+the album: the permission check and the listing query both already carry a
+folder's access down to the files inside it, so one grant shares the lot,
+covers anything added later, and removing it takes it all back. With anybody
+else it is a timed link — grandparents who will never have an account get a
+page of the holiday and nothing else.
+
 ## II. Lists
 
 Groceries, packing, the school list. A list is not a document and does not
