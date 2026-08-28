@@ -22,7 +22,7 @@ module Api
       # POST /api/v1/auth/register
       def register
         user = User.new(registration_params)
-        user.storage_quota = ENV.fetch("USER_STORAGE_QUOTA_BYTES", 268_435_456).to_i
+        user.storage_quota = ENV.fetch("USER_STORAGE_QUOTA_BYTES", 107_374_182_400).to_i
         user.save!
 
         issue_session(user, status: :created)

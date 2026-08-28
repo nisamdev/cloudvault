@@ -22,7 +22,7 @@ module Api
       # an account requires any.
       def create
         family = Family.new(family_params.merge(owner: current_user))
-        family.family_storage_quota = ENV.fetch("FAMILY_STORAGE_QUOTA_BYTES", 2_147_483_648).to_i
+        family.family_storage_quota = ENV.fetch("FAMILY_STORAGE_QUOTA_BYTES", 107_374_182_400).to_i
         family.save!
 
         # A newly created family is the one you meant to be working in.

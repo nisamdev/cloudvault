@@ -16,7 +16,7 @@ dad.assign_attributes(
   full_name: "Dad Smith",
   password: PASSWORD,
   timezone: "Europe/London",
-  storage_quota: ENV.fetch("USER_STORAGE_QUOTA_BYTES", 268_435_456).to_i
+  storage_quota: ENV.fetch("USER_STORAGE_QUOTA_BYTES", 107_374_182_400).to_i
 )
 dad.save!
 
@@ -32,7 +32,7 @@ family = Family.find_or_initialize_by(owner: dad)
 family.assign_attributes(
   name: "The Smith Family",
   description: "Documents and photos we all share",
-  family_storage_quota: ENV.fetch("FAMILY_STORAGE_QUOTA_BYTES", 2_147_483_648).to_i
+  family_storage_quota: ENV.fetch("FAMILY_STORAGE_QUOTA_BYTES", 107_374_182_400).to_i
 )
 family.save!
 
