@@ -150,14 +150,33 @@ const selectableItems = computed(() => [
   ...filesStore.items.map((file) => ({ type: "file", id: file.id })),
 ]);
 
+/**
+ * What may be done to *everything* in the selection.
+ *
+ * Somebody else's file, shared with you to read, is not yours to move or throw
+ * away. Offering it and then refusing after the click reads as a bug rather
+ * than as a rule. Folders in the selection are the caller's own by definition
+ * — only files arrive from other people.
+ */
+const selectionCan = computed(() => {
+  const chosen = filesStore.items.filter((f) => isSelected("file", f.id));
+  const every = (right) => chosen.every((f) => f.permissions?.[right]);
+
+  return { edit: every("can_edit"), delete: every("can_delete") };
+});
+
 const bulkActions = computed(() => [
   {
     id: "download",
     label: selectedCount.value > 1 ? "Download ZIP" : "Download",
     icon: selectedCount.value > 1 ? "fa-file-zipper" : "fa-download",
   },
-  vault.exists && { id: "private", label: "Move to Private", icon: "fa-lock" },
-  { id: "trash", label: "Move to trash", icon: "fa-trash", danger: true },
+  selectionCan.value.edit && vault.exists && {
+    id: "private", label: "Move to Private", icon: "fa-lock",
+  },
+  selectionCan.value.delete && {
+    id: "trash", label: "Move to trash", icon: "fa-trash", danger: true,
+  },
 ].filter(Boolean));
 
 const bulkNoun = computed(() => {

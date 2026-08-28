@@ -260,16 +260,44 @@ const selectableItems = computed(() =>
   filesStore.items.map((file) => ({ type: "file", id: file.id })),
 );
 
+/**
+ * What may be done to *all* of the selected photographs.
+ *
+ * Somebody else's photograph, shared with you to look at, is not yours to
+ * rename, re-file or throw away. Offering the option and then refusing it is
+ * the worst of both: the server says no after the click, which reads as a bug
+ * rather than as a rule.
+ */
+const selectionCan = computed(() => {
+  const chosen = filesStore.items.filter((f) => isSelected("file", f.id));
+  const every = (right) => chosen.length > 0 && chosen.every((f) => f.permissions?.[right]);
+
+  return {
+    edit: every("can_edit"),
+    delete: every("can_delete"),
+    share: every("can_share"),
+    // Which album a photograph lives in is where its owner keeps it. Family
+    // visibility lets everybody change what is *in* a file; it does not make
+    // somebody else's photograph theirs to move out of the album it is in.
+    file: chosen.length > 0 && chosen.every((f) => mine(f)),
+  };
+});
+
+/** Whether this photograph is the viewer's own. */
+function mine(file) {
+  return (file.owner?.id ?? auth.user?.id) === auth.user?.id;
+}
+
 const bulkActions = computed(() => [
   {
     id: "download",
     label: selectedCount.value > 1 ? "Download ZIP" : "Download",
     icon: selectedCount.value > 1 ? "fa-file-zipper" : "fa-download",
   },
-  { id: "album", label: "Put in an album…", icon: "fa-folder" },
-  { id: "document", label: "These aren't photos", icon: "fa-file-lines" },
-  vault.exists && { id: "private", label: "Move to Private", icon: "fa-lock" },
-  { id: "trash", label: "Move to trash", icon: "fa-trash", danger: true },
+  selectionCan.value.file && { id: "album", label: "Put in an album…", icon: "fa-folder" },
+  selectionCan.value.edit && { id: "document", label: "These aren't photos", icon: "fa-file-lines" },
+  selectionCan.value.edit && vault.exists && { id: "private", label: "Move to Private", icon: "fa-lock" },
+  selectionCan.value.delete && { id: "trash", label: "Move to trash", icon: "fa-trash", danger: true },
 ].filter(Boolean));
 
 function onEscape(event) {
@@ -688,16 +716,20 @@ function photoMenu(event, file) {
       title: `${selectedCount.value} selected`,
       items: [
         { label: "Download as ZIP", icon: "fa-file-zipper", action: () => runBulk("download") },
-        // The same three moves the bar offers, in the same words. Two menus
-        // over the same selection saying different things is how somebody ends
-        // up pressing the one they did not mean.
-        { label: "Put in an album…", icon: "fa-folder", action: () => runBulk("album") },
-        { label: "These aren't photos", icon: "fa-file-lines", action: () => runBulk("document") },
-        vault.exists && {
+        // The same moves the bar offers, in the same words and under the same
+        // rules. Two menus over one selection disagreeing about what is
+        // allowed is how somebody presses a button that then refuses them.
+        selectionCan.value.file && {
+          label: "Put in an album…", icon: "fa-folder", action: () => runBulk("album"),
+        },
+        selectionCan.value.edit && {
+          label: "These aren't photos", icon: "fa-file-lines", action: () => runBulk("document"),
+        },
+        selectionCan.value.edit && vault.exists && {
           label: "Move to Private", icon: "fa-lock", action: () => runBulk("private"),
         },
-        { divider: true },
-        {
+        selectionCan.value.delete && { divider: true },
+        selectionCan.value.delete && {
           label: "Move to trash", icon: "fa-trash", danger: true, action: () => runBulk("trash"),
         },
       ],
@@ -711,14 +743,14 @@ function photoMenu(event, file) {
       { label: "Preview", icon: "fa-eye", action: () => (previewFile.value = file) },
       { label: "Download", icon: "fa-download", action: () => onDownload(file) },
       { label: "Details", icon: "fa-circle-info", action: () => (detailsFile.value = file) },
-      {
+      file.permissions.can_edit && {
         // Almost no photograph arrives knowing where it was taken, so this is
         // the only way the gallery will ever be searchable by place.
         label: file.image?.place_name ? "Change the place" : "Say where it was taken",
         icon: "fa-location-dot",
         action: () => (placingFile.value = file),
       },
-      {
+      mine(file) && {
         label: "Move to an album…",
         icon: "fa-folder",
         action: () => (filing.value = [ file ]),
