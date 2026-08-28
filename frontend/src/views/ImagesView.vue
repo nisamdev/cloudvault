@@ -15,6 +15,7 @@ import FilterBar from "@/components/files/FilterBar.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
 import PhotoPlacePicker from "@/components/files/PhotoPlacePicker.vue";
+import AlbumPicker from "@/components/files/AlbumPicker.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import BulkActionBar from "@/components/ui/BulkActionBar.vue";
@@ -50,8 +51,13 @@ const placingFile = ref(null);
  */
 const albums = ref([]);
 const albumId = ref(null);
+/** Photographs waiting to be filed, while the album picker is open. */
+const filing = ref(null);
+/** Which bulk action is actually running, so only that button spins. */
+const runningAction = ref("");
 
 const currentAlbum = computed(() => albums.value.find((a) => a.id === albumId.value) ?? null);
+const defaultAlbum = computed(() => albums.value.find((a) => a.is_default) ?? null);
 
 async function loadAlbums() {
   try {
@@ -463,42 +469,77 @@ function onPhotoClick(event, file) {
   previewFile.value = file;
 }
 
-/** Which album to file into, asked once for however many are selected. */
-async function pickAlbum(count) {
-  const choices = albums.value.map((a) => `${a.id}: ${a.name}`).join("\n");
-  const answer = await dialog.prompt({
-    title: `Put ${count} ${count === 1 ? "photo" : "photos"} in which album?`,
-    label: `Type the name of an album, or a new one.\n${choices}`,
-    placeholder: albums.value[0]?.name ?? "Holidays",
-    confirmLabel: "File them",
-  });
-  const wanted = answer?.trim();
-  if (!wanted) return null;
+/** Filing whatever the picker was opened for, into an album that exists. */
+async function fileInto(targetId) {
+  const photos = filing.value ?? [];
+  filing.value = null;
+  if (!photos.length) return;
 
-  const existing = albums.value.find((a) => a.name.toLowerCase() === wanted.toLowerCase());
-  if (existing) return existing.id;
+  await moveToAlbum(photos, targetId);
+  toast.show({ message: `${photos.length} filed` });
+  clearSelection();
+}
 
+/** …or into one that does not exist yet. */
+async function fileIntoNew(name) {
   try {
-    const { data } = await api.post("/folders", { folder: { name: wanted, kind: "photo" } });
+    const { data } = await api.post("/folders", { folder: { name, kind: "photo" } });
     await loadAlbums();
-    return data.folder.id;
+    await fileInto(data.folder.id);
   } catch (e) {
+    filing.value = null;
     toast.show({ message: e.userMessage });
-    return null;
   }
 }
 
-/** "Put in…" for every album this photograph is not already in. */
-function albumChoices(photos) {
-  const from = photos[0]?.folder_id ?? null;
+/** Renaming and removing an album, from the chip itself. */
+async function renameAlbum(album) {
+  const name = await dialog.prompt({
+    title: "Rename album", label: "What should it be called?",
+    value: album.name, confirmLabel: "Rename",
+  });
+  if (!name?.trim() || name.trim() === album.name) return;
 
-  return albums.value
-    .filter((album) => album.id !== from)
-    .map((album) => ({
-      label: `Put in ${album.name}`,
-      icon: album.is_default ? "fa-images" : "fa-folder",
-      action: () => moveToAlbum(photos, album.id),
-    }));
+  try {
+    await api.patch(`/folders/${album.id}`, { folder: { name: name.trim() } });
+    await loadAlbums();
+  } catch (e) {
+    toast.show({ message: e.userMessage });
+  }
+}
+
+async function deleteAlbum(album) {
+  const ok = await dialog.confirm({
+    title: `Remove the album “${album.name}”?`,
+    message: "The album goes; the photographs in it do not.",
+    detail: `They go back to ${defaultAlbum.value?.name ?? "the default album"}.`,
+    confirmLabel: "Remove the album",
+    danger: true,
+  });
+  if (!ok) return;
+
+  try {
+    await api.delete(`/folders/${album.id}`);
+    if (albumId.value === album.id) albumId.value = defaultAlbum.value?.id ?? null;
+    await loadAlbums();
+    await load();
+  } catch (e) {
+    toast.show({ message: e.userMessage });
+  }
+}
+
+function albumMenu(event, album) {
+  if (album.is_default) return;
+
+  contextMenu.open(event, {
+    items: [
+      { label: "Rename", icon: "fa-pen", action: () => renameAlbum(album) },
+      {
+        label: "Remove the album", icon: "fa-trash", danger: true,
+        action: () => deleteAlbum(album),
+      },
+    ],
+  });
 }
 
 function onPlaceSaved(updated) {
@@ -519,6 +560,7 @@ async function runBulk(actionId) {
   if (!photos.length) return;
 
   bulkBusy.value = true;
+  runningAction.value = actionId;
   try {
     if (actionId === "download") {
       if (photos.length === 1) {
@@ -528,14 +570,7 @@ async function runBulk(actionId) {
         toast.show({ message: `Downloading ${photos.length} photos as ZIP` });
       }
     } else if (actionId === "album") {
-      const target = await pickAlbum(photos.length);
-      if (!target) return;
-
-      await moveToAlbum(photos, target);
-      toast.show({
-        message: `${photos.length} ${photos.length === 1 ? "photo" : "photos"} filed`,
-      });
-      clearSelection();
+      filing.value = photos;
     } else if (actionId === "document") {
       // This takes them out of the gallery altogether, which is not what
       // "move to My Files" sounded like to the person who pressed it.
@@ -595,6 +630,7 @@ async function runBulk(actionId) {
     filesStore.error = e.userMessage;
   } finally {
     bulkBusy.value = false;
+    runningAction.value = "";
   }
 }
 
@@ -630,7 +666,11 @@ function photoMenu(event, file) {
         icon: "fa-location-dot",
         action: () => (placingFile.value = file),
       },
-      ...albumChoices([ file ]),
+      {
+        label: "Move to an album…",
+        icon: "fa-folder",
+        action: () => (filing.value = [ file ]),
+      },
       file.permissions.can_share && {
         label: "Share…", icon: "fa-share-nodes", action: () => (sharingFile.value = file),
       },
@@ -736,7 +776,9 @@ function photoMenu(event, file) {
             ? 'border-primary-600 bg-primary-50 text-primary-700'
             : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
         ]"
+        :title="album.is_default ? album.name : `${album.name} — right-click to rename or remove`"
         @click="openAlbum(album.id)"
+        @contextmenu.prevent="albumMenu($event, album)"
       >
         <i :class="['fas', album.is_default ? 'fa-images' : 'fa-folder']" aria-hidden="true"></i>
         {{ album.name }}
@@ -929,6 +971,7 @@ function photoMenu(event, file) {
         noun="photo"
         :actions="bulkActions"
         :busy="bulkBusy"
+        :running="runningAction"
         @action="runBulk"
         @clear="clearSelection"
       />
@@ -947,6 +990,16 @@ function photoMenu(event, file) {
     <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
 
     <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
+
+    <AlbumPicker
+      v-if="filing"
+      :albums="albums"
+      :count="filing.length"
+      :current-id="filing.length === 1 ? (filing[0]?.folder_id ?? null) : null"
+      @choose="fileInto"
+      @create="fileIntoNew"
+      @close="filing = null"
+    />
 
     <PhotoPlacePicker
       v-if="placingFile"

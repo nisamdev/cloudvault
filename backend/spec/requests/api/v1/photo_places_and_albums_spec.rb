@@ -172,3 +172,40 @@ RSpec.describe "Api::V1 files changing sides" do
     expect(json["files"].map { |f| f["name"] }).to include("Receipt.jpg")
   end
 end
+
+# Removing an album is removing a grouping, not the photographs in it.
+RSpec.describe "Api::V1 removing an album" do
+  let(:user) { create(:user) }
+  let!(:home) { Folder.default_for(user, kind: "photo") }
+  let!(:album) { create(:folder, user: user, kind: "photo", name: "Cornwall") }
+  let!(:photo) do
+    create(:stored_file, user: user, file_type: "image", mime_type: "image/jpeg",
+                         folder_id: album.id, name: "Beach.jpg")
+  end
+
+  it "sends the photographs back to the default album" do
+    delete "/api/v1/folders/#{album.id}", headers: auth_headers_for(user)
+
+    expect(response).to have_http_status(:no_content)
+    expect(photo.reload.folder_id).to eq(home.id)
+    expect(photo.trashed_at).to be_nil
+  end
+
+  it "keeps the default album, which is where they would go" do
+    delete "/api/v1/folders/#{home.id}", headers: auth_headers_for(user)
+
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(home.reload.trashed_at).to be_nil
+  end
+
+  # A document folder is different: filing something there and then deleting
+  # the folder does mean throwing it away, and always has.
+  it "still throws away what was in a document folder" do
+    folder = create(:folder, user: user, kind: "file", name: "Old paperwork")
+    document = create(:stored_file, user: user, file_type: "file", folder_id: folder.id)
+
+    delete "/api/v1/folders/#{folder.id}", headers: auth_headers_for(user)
+
+    expect(document.reload.trashed_at).to be_present
+  end
+end

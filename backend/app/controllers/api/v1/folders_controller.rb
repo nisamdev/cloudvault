@@ -92,15 +92,37 @@ module Api
       # Soft-deletes the folder and everything under it, so Trash can restore
       # the whole branch rather than leaving orphaned files behind.
       def destroy
+        # The default album is where everything lands; without it a gallery has
+        # nowhere to put a photograph at all.
+        if @folder.is_default?
+          return render_error(message: "#{@folder.name} is where photos go by default, so it stays.",
+                              code: "default_folder", status: :unprocessable_content)
+        end
+
         now = Time.current
         ids = [ @folder.id ] + descendant_ids(@folder)
 
         Folder.transaction do
           Folder.where(id: ids).update_all(trashed_at: now, updated_at: now)
-          StoredFile.where(folder_id: ids, trashed_at: nil).update_all(trashed_at: now, updated_at: now)
+          empty_into_trash_or_default(ids, now)
         end
 
         head :no_content
+      end
+
+      # Deleting a document folder throws away what was filed in it, which is
+      # what filing means. Deleting an album is not that at all: somebody is
+      # removing a grouping, not the photographs, so those go back to the
+      # album everything starts in.
+      def empty_into_trash_or_default(ids, now)
+        files = StoredFile.where(folder_id: ids, trashed_at: nil)
+
+        if @folder.kind == "photo"
+          home = Folder.default_for(current_user, kind: "photo", family: current_family)
+          files.update_all(folder_id: home.id, updated_at: now)
+        else
+          files.update_all(trashed_at: now, updated_at: now)
+        end
       end
 
       # GET /api/v1/folders/trashed
