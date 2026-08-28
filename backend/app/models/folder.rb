@@ -41,8 +41,9 @@ class Folder < ApplicationRecord
     folder
   end
 
-  # Everything already in the gallery predates having anywhere to put it, so
-  # the first album takes them in. Only once, when it is made.
+  # A photograph belonging to no album shows on no shelf, and an upload lands
+  # in no album. So the default one takes in whatever is loose, whenever the
+  # gallery is opened — not only on the day it was made.
   def self.adopt_loose_photos(user, folder)
     StoredFile.images.active
               .where(user_id: user.id, folder_id: nil)

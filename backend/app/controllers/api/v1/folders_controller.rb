@@ -24,8 +24,14 @@ module Api
         # only for its own. Anything not asking gets the documents, as before.
         scope = scope.of_kind(params[:kind])
         # A gallery that has never been opened has nowhere to put a photograph
-        # yet, so asking for the albums is what brings the first one into being.
-        Folder.default_for(current_user, kind: "photo", family: current_family) if params[:kind] == "photo"
+        # yet, so asking for the albums is what brings the first one into
+        # being — and takes in anything still loose, every time rather than
+        # only on the day it was made. An upload lands in no album at all, and
+        # a photograph in no album shows on no shelf.
+        if params[:kind] == "photo"
+          home = Folder.default_for(current_user, kind: "photo", family: current_family)
+          Folder.adopt_loose_photos(current_user, home)
+        end
         folders = scope.reload.order(is_default: :desc, name: :asc)
 
         render json: {

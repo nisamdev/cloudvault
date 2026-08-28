@@ -80,6 +80,29 @@ RSpec.describe "Api::V1 photo places and albums" do
       expect(Folder.of_kind("photo").where(user_id: user.id, is_default: true).count).to eq(1)
     end
 
+    # An upload lands in no album at all, and a photograph in no album shows on
+    # no shelf — which is how a freshly signed-up account uploaded sixty-seven
+    # pictures and saw an empty gallery.
+    it "takes in photographs uploaded after it was made" do
+      get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(user)
+      home = json["folders"].first["id"]
+
+      later = photo(name: "Just uploaded.jpg", folder_id: nil)
+      get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(user)
+
+      expect(later.reload.folder_id).to eq(home)
+    end
+
+    it "leaves somebody else's loose photograph alone" do
+      stranger = create(:user)
+      theirs = create(:stored_file, user: stranger, file_type: "image",
+                                    mime_type: "image/jpeg", folder_id: nil)
+
+      get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(user)
+
+      expect(theirs.reload.folder_id).to be_nil
+    end
+
     # Everything already in the gallery predates having anywhere to put it.
     it "takes in the photographs that were already there" do
       loose = photo(name: "Old.jpg", folder_id: nil)
