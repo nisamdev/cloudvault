@@ -26,7 +26,7 @@ module Api
         # A gallery that has never been opened has nowhere to put a photograph
         # yet, so asking for the albums is what brings the first one into being.
         Folder.default_for(current_user, kind: "photo", family: current_family) if params[:kind] == "photo"
-        folders = scope.reload.order(:is_default => :desc, :name => :asc)
+        folders = scope.reload.order(is_default: :desc, name: :asc)
 
         render json: {
           folders: folders.map { |folder| serialize(folder) },

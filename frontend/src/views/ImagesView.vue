@@ -40,6 +40,65 @@ const {
 const contextMenu = useContextMenu();
 /** The photograph having its place set, if any. */
 const placingFile = ref(null);
+
+/**
+ * Albums — folders of their own, which never appear in My Files.
+ *
+ * Everything in one grid stops being a gallery somewhere around the second
+ * year. The default album is where photographs live until somebody files them
+ * somewhere better, and it is what opens.
+ */
+const albums = ref([]);
+const albumId = ref(null);
+
+const currentAlbum = computed(() => albums.value.find((a) => a.id === albumId.value) ?? null);
+
+async function loadAlbums() {
+  try {
+    const { data } = await api.get("/folders", { params: { kind: "photo" } });
+    albums.value = data.folders;
+    if (albumId.value === null) {
+      albumId.value = (data.folders.find((f) => f.is_default) ?? data.folders[0])?.id ?? null;
+    }
+  } catch {
+    // Without albums the gallery is what it always was: one grid.
+  }
+}
+
+async function openAlbum(id) {
+  albumId.value = id;
+  await load();
+}
+
+async function newAlbum() {
+  const name = await dialog.prompt({
+    title: "New album",
+    label: "What is it called?",
+    placeholder: "Cornwall 2025",
+    confirmLabel: "Create",
+  });
+  if (!name?.trim()) return;
+
+  try {
+    await api.post("/folders", { folder: { name: name.trim(), kind: "photo" } });
+    await loadAlbums();
+  } catch (e) {
+    toast.show({ message: e.userMessage });
+  }
+}
+
+/** Files the selected photographs under an album. */
+async function moveToAlbum(photos, targetId) {
+  try {
+    for (const photo of photos) {
+      await api.patch(`/files/${photo.id}`, { folder_id: targetId });
+    }
+    await load();
+    await loadAlbums();
+  } catch (e) {
+    toast.show({ message: e.userMessage });
+  }
+}
 const dialog = useDialog();
 const toast = useToast();
 const bulkBusy = ref(false);
@@ -189,9 +248,11 @@ function onKeySelectAll(event) {
   selectAll(selectableItems.value);
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("keydown", onEscape);
   window.addEventListener("keydown", onKeySelectAll);
+  // Albums first: which one is open decides what the grid asks for.
+  await loadAlbums();
   load();
 
   observer = new IntersectionObserver(
@@ -222,6 +283,8 @@ const unfilteredTotal = ref(0);
 
 async function load() {
   const { label_ids: labelIds, ...rest } = filters.value;
+  // An album is a folder, and the grid shows one at a time.
+  if (albumId.value != null) rest.folder_id = albumId.value;
   await filesStore.fetchFiles({ fileType: "image", labelIds, filters: rest });
 
   if (!hasFilters.value) unfilteredTotal.value = filesStore.totalCount;
@@ -399,6 +462,19 @@ function onPhotoClick(event, file) {
   previewFile.value = file;
 }
 
+/** "Put in…" for every album this photograph is not already in. */
+function albumChoices(photos) {
+  const from = photos[0]?.folder_id ?? null;
+
+  return albums.value
+    .filter((album) => album.id !== from)
+    .map((album) => ({
+      label: `Put in ${album.name}`,
+      icon: album.is_default ? "fa-images" : "fa-folder",
+      action: () => moveToAlbum(photos, album.id),
+    }));
+}
+
 function onPlaceSaved(updated) {
   const index = filesStore.items.findIndex((f) => f.id === updated.id);
   if (index >= 0) filesStore.items.splice(index, 1, updated);
@@ -505,6 +581,7 @@ function photoMenu(event, file) {
         icon: "fa-location-dot",
         action: () => (placingFile.value = file),
       },
+      ...albumChoices([ file ]),
       file.permissions.can_share && {
         label: "Share…", icon: "fa-share-nodes", action: () => (sharingFile.value = file),
       },
@@ -532,7 +609,9 @@ function photoMenu(event, file) {
   <section>
     <header class="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <h1 class="text-h2 font-bold text-gray-800">Photo Gallery</h1>
+        <h1 class="text-h2 font-bold text-gray-800">
+          {{ currentAlbum ? currentAlbum.name : "Photo Gallery" }}
+        </h1>
         <p class="mt-1 text-body-sm text-gray-500">
           <template v-if="hasFilters">
             {{ filesStore.totalCount }} of {{ unfilteredTotal }}
@@ -592,6 +671,37 @@ function photoMenu(event, file) {
       class="mb-6"
       @complete="onUploadComplete"
     />
+
+    <!-- Albums. One grid holding everything stops being a gallery somewhere
+         around the second year, so the default album is what opens and the
+         rest are a click away. -->
+    <div v-if="albums.length" class="mb-5 flex flex-wrap items-center gap-2">
+      <button
+        v-for="album in albums"
+        :key="album.id"
+        type="button"
+        :aria-pressed="album.id === albumId"
+        :class="[
+          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
+          album.id === albumId
+            ? 'border-primary-600 bg-primary-50 text-primary-700'
+            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+        ]"
+        @click="openAlbum(album.id)"
+      >
+        <i :class="['fas', album.is_default ? 'fa-images' : 'fa-folder']" aria-hidden="true"></i>
+        {{ album.name }}
+        <span class="tabular-nums opacity-60">{{ album.file_count }}</span>
+      </button>
+
+      <button
+        type="button"
+        class="rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-body-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700"
+        @click="newAlbum"
+      >
+        <i class="fas fa-plus mr-1.5" aria-hidden="true"></i>New album
+      </button>
+    </div>
 
     <FilterBar v-model="filters" photo-filters capture-sort @change="load" />
 

@@ -30,8 +30,18 @@ class Folder < ApplicationRecord
     existing = active.of_kind(kind).find_by(user_id: user.id, is_default: true)
     return existing if existing
 
-    create!(user: user, family: family, kind: kind, is_default: true,
-            name: kind == "photo" ? "All photos" : "All files")
+    folder = create!(user: user, family: family, kind: kind, is_default: true,
+                     name: kind == "photo" ? "All photos" : "All files")
+    adopt_loose_photos(user, folder) if kind == "photo"
+    folder
+  end
+
+  # Everything already in the gallery predates having anywhere to put it, so
+  # the first album takes them in. Only once, when it is made.
+  def self.adopt_loose_photos(user, folder)
+    StoredFile.images.active
+              .where(user_id: user.id, folder_id: nil)
+              .update_all(folder_id: folder.id, updated_at: Time.current)
   end
 
   # Breadcrumb trail, root first.
