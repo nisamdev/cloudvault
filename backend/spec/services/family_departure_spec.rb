@@ -12,9 +12,15 @@ RSpec.describe FamilyDeparture do
   let(:leaver) { create(:user) }
   let!(:membership) { create(:family_member, family: family, user: leaver, role: "editor") }
 
-  let!(:shared_file) do
-    create(:stored_file, user: leaver, family: family, visibility: "family", name: "Holiday.jpg")
+  let!(:photo) do
+    create(:stored_file, user: leaver, family: family, visibility: "family",
+                         name: "Holiday.jpg", file_type: "image")
   end
+  let!(:document) do
+    create(:stored_file, user: leaver, family: family, visibility: "family",
+                         name: "Deed.pdf", file_type: "file")
+  end
+  let(:shared_file) { photo }
   let!(:private_file) do
     create(:stored_file, user: leaver, family: family, visibility: "private", name: "Diary.pdf")
   end
@@ -25,55 +31,108 @@ RSpec.describe FamilyDeparture do
 
   def depart = described_class.new(membership).call
 
-  describe "what goes home with them" do
-    it "does not take their photographs off them" do
+  # The default policy: a photograph is personal and goes back to whoever took
+  # it; a document or a register entry was contributed to the household.
+  describe "with the family's default policy" do
+    it "sends their photographs home with them" do
       depart
 
-      expect(shared_file.reload.user_id).to eq(leaver.id)
-      expect(shared_record.reload.user_id).to eq(leaver.id)
+      expect(photo.reload.user_id).to eq(leaver.id)
+      expect(photo.visibility).to eq("private")
+      expect(PermissionChecker.can_view?(owner, photo)).to be(false)
+      expect(PermissionChecker.can_view?(leaver, photo)).to be(true)
     end
 
-    it "unshares it, so the family stops seeing it" do
+    it "keeps the documents they contributed" do
       depart
 
-      expect(shared_file.reload.visibility).to eq("private")
-      expect(shared_file.family_id).to be_nil
-      expect(PermissionChecker.can_view?(owner, shared_file)).to be(false)
-      expect(RecordPermissions.can_view?(owner, shared_record.reload)).to be(false)
+      expect(document.reload.user_id).to eq(owner.id)
+      expect(document.visibility).to eq("family")
+      expect(PermissionChecker.can_view?(owner, document)).to be(true)
     end
 
-    it "leaves them able to reach their own things afterwards" do
+    it "keeps the register entries they contributed" do
       depart
 
-      expect(PermissionChecker.can_view?(leaver, shared_file.reload)).to be(true)
-      expect(RecordPermissions.can_view?(leaver, shared_record.reload)).to be(true)
+      expect(shared_record.reload.user_id).to eq(owner.id)
+      expect(RecordPermissions.can_view?(owner, shared_record)).to be(true)
     end
 
-    it "deletes nothing" do
+    it "deletes nothing, whichever way each thing went" do
       depart
 
-      expect(StoredFile.exists?(shared_file.id)).to be(true)
+      expect(StoredFile.exists?(photo.id)).to be(true)
+      expect(StoredFile.exists?(document.id)).to be(true)
       expect(VaultRecord.exists?(shared_record.id)).to be(true)
     end
 
+    it "counts both directions, so somebody can be told" do
+      expect(depart.to_h).to include(went_home: 1, stayed: 2)
+    end
+
+    it "leaves the folder with the family either way" do
+      depart
+
+      expect(shared_folder.reload.user_id).to eq(owner.id)
+    end
+  end
+
+  describe "when the family says photographs stay too" do
+    before { family.update!(on_departure_photos: "stay") }
+
+    it "keeps them" do
+      depart
+
+      expect(photo.reload.user_id).to eq(owner.id)
+      expect(photo.visibility).to eq("family")
+    end
+  end
+
+  describe "when the family says everything goes home" do
+    before do
+      family.update!(on_departure_photos: "home", on_departure_files: "home",
+                     on_departure_records: "home")
+    end
+
+    it "sends all of it back to them" do
+      depart
+
+      expect(photo.reload.user_id).to eq(leaver.id)
+      expect(document.reload.user_id).to eq(leaver.id)
+      expect(shared_record.reload.user_id).to eq(leaver.id)
+      expect(PermissionChecker.can_view?(owner, document.reload)).to be(false)
+    end
+
     it "gives the family back the storage it was holding" do
-      family.update!(family_storage_used: shared_file.size)
+      family.update!(family_storage_used: photo.size + document.size)
 
       depart
 
       expect(family.reload.family_storage_used).to eq(0)
     end
+  end
 
-    # A folder is a place, not a possession — everything of theirs inside it
-    # has already gone home.
-    it "leaves the folder with the family" do
-      depart
-
-      expect(shared_folder.reload.user_id).to eq(owner.id)
+  # A retained record pointing at a document that walked out of the door is
+  # worse than either answer.
+  describe "a document attached to a record that stays" do
+    before do
+      family.update!(on_departure_files: "home")
+      RecordAttachment.create!(vault_record: shared_record, stored_file: document, position: 0)
     end
 
-    it "counts what left, so somebody can be told" do
-      expect(depart.to_h).to include(files: 1, records: 1)
+    it "stays, whatever the policy says about documents" do
+      depart
+
+      expect(document.reload.user_id).to eq(owner.id)
+      expect(document.visibility).to eq("family")
+    end
+
+    it "goes home when the record goes home too" do
+      family.update!(on_departure_records: "home")
+
+      depart
+
+      expect(document.reload.user_id).to eq(leaver.id)
     end
   end
 
@@ -144,16 +203,16 @@ RSpec.describe FamilyDeparture do
   describe ".settle_orphans, undoing the rule this replaced" do
     # Removal used to hand what somebody shared to the family owner. The family
     # grant records who shared it and never moves, so those can be given back.
-    it "gives back a file taken from somebody who has left" do
-      grant = AccessGrant.find_by(resource: shared_file, subject_type: "Family")
+    it "gives back a photograph taken from somebody who has left" do
+      grant = AccessGrant.find_by(resource: photo, subject_type: "Family")
       expect(grant.granted_by_id).to eq(leaver.id)
-      shared_file.update_columns(user_id: owner.id)
+      photo.update_columns(user_id: owner.id)
       membership.destroy!
 
       described_class.settle_orphans
 
-      expect(shared_file.reload.user_id).to eq(leaver.id)
-      expect(shared_file.visibility).to eq("private")
+      expect(photo.reload.user_id).to eq(leaver.id)
+      expect(photo.visibility).to eq("private")
     end
 
     it "leaves alone what a current member shared" do

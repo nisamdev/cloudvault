@@ -68,11 +68,12 @@ RSpec.describe "Api::V1::Members" do
   end
 
   describe "DELETE /api/v1/families/:family_id/members/:id" do
-    it "removes a member, and says what the family kept" do
+    it "removes a member, and says what went which way" do
       delete "/api/v1/families/#{family.id}/members/#{teen.id}", headers: auth_headers_for(owner)
 
       expect(response).to have_http_status(:ok)
-      expect(json["kept"]).to include("files" => 0, "records" => 0, "folders" => 0)
+      expect(json["kept"]).to include("went_home" => 0, "stayed" => 0)
+      expect(json.dig("kept", "policy")).to include("photos" => "home", "records" => "stay")
       expect(FamilyMember.exists?(teen.id)).to be false
     end
 

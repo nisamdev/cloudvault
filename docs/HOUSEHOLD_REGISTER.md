@@ -539,30 +539,39 @@ Removal is its own button beside the vault switch, labelled with the word for
 it — it was a bare red icon sitting after a dropdown and a tick box, and read
 as decoration.
 
-**What they shared goes home with them.** They uploaded it, it was theirs
-throughout, and being removed from a family does not make their photograph
-somebody else's. It is unshared back to their own files, whole and still
-theirs, and the family stops seeing it. Nothing is deleted. Their private
-things are not touched at all.
+**What leaves with them depends on what it is**, and the household decides,
+under "When someone leaves" in Family settings:
 
-This is the second answer to that question. The first was that the household
-kept what it had been given — which reads well, and was chosen deliberately,
-until you watch it happen: the person who took the photograph loses it and the
-person who removed them keeps it. Whatever the argument for a household keeping
-the passports somebody scanned for it, it is not worth taking their own
-pictures off them. If the household needs to keep something, copy it before
-removing them; the dialog says so.
+```
+families
+  on_departure_photos   home | stay   — default: home
+  on_departure_files    home | stay   — default: stay
+  on_departure_records  home | stay   — default: stay
+```
 
-`rake families:settle_departures` undoes the first rule wherever it already
-ran. The family grant records who shared each file in `granted_by` and never
-moves, so anything taken from somebody who has since left can be handed back
-and unshared, as it should have been at the time. The same task repairs any
-file whose visibility column and access grant have drifted apart.
+"home" unshares it back to their own files: still theirs, whole, and the family
+stops seeing it. "stay" leaves it shared and passes it to whoever owns the
+family, so nobody outside still holds the keys to what the household depends on.
+Nothing is ever deleted either way.
 
-The half of the original rule that stands is the half about control: a removed
-person must not keep the keys to what the family is still using. They no longer
-do — because what they might have controlled has gone with them, and what stays
-is the family's own.
+One rule for everything was wrong in both directions, and it took two goes to
+see it. Keeping everything meant the person who took a photograph lost it to
+whoever removed them. Sending everything home meant a household lost the deed
+somebody had scanned for it. A holiday photograph and a scanned deed are not
+the same kind of thing and do not want the same answer — so they no longer get
+one.
+
+The policy has one override: **a document attached to a register entry that
+stays, stays**, whatever Documents is set to. A retained record pointing at a
+file that walked out of the door is worse than either answer.
+
+`rake families:settle_departures` undoes the old keep-everything rule wherever
+it already ran. The family grant records who shared each file in `granted_by`
+and never moves, so anything taken from somebody who has since left is handed
+back and unshared. The same task repairs any file whose visibility column and
+access grant have drifted apart — one saying "shared with the family" while
+granting nobody anything is listed on every family screen and opens for none of
+them.
 
 ### Being invited when you already have an account
 

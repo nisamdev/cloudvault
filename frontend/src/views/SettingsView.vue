@@ -83,6 +83,7 @@ async function load() {
     if (auth.family) {
       const { data } = await api.get(`/families/${auth.family.id}`);
       members.value = data.members;
+      if (data.family?.on_departure) departure.value = data.family.on_departure;
       invitations.value = data.invitations;
     }
   } catch (e) {
@@ -345,6 +346,38 @@ async function revokeInvitation(invitation) {
  * password and not with the mortgage — and nobody's private section is
  * affected either way.
  */
+/**
+ * What each kind of thing does when somebody leaves.
+ *
+ * A holiday photograph and a scanned deed are not the same kind of thing and do
+ * not want the same answer, so the household says which is which.
+ */
+const departure = ref({ photos: "home", files: "stay", records: "stay" });
+const savingDeparture = ref(false);
+
+const DEPARTURE_KINDS = [
+  { key: "photos", label: "Photos", hint: "Pictures they added to the family gallery" },
+  { key: "files", label: "Documents", hint: "Scans and files they put in My Files" },
+  { key: "records", label: "Register entries", hint: "Passports, property, accounts they filed" },
+];
+
+async function setDeparture(kind, choice) {
+  const previous = departure.value[kind];
+  departure.value = { ...departure.value, [kind]: choice };
+  savingDeparture.value = true;
+
+  try {
+    await api.patch(`/families/${auth.family.id}`, {
+      family: { [`on_departure_${kind}`]: choice },
+    });
+  } catch (e) {
+    departure.value = { ...departure.value, [kind]: previous };
+    error.value = e.userMessage;
+  } finally {
+    savingDeparture.value = false;
+  }
+}
+
 async function setVaultAccess(member, canUse) {
   try {
     const { data } = await api.patch(`/families/${auth.family.id}/members/${member.id}`, {
@@ -373,30 +406,38 @@ async function changeRole(member, role) {
   }
 }
 
+/** What this family's policy will do to what they shared, said before it happens. */
+function departureDetail() {
+  const goes = DEPARTURE_KINDS.filter((k) => departure.value[k.key] === "home")
+    .map((k) => k.label.toLowerCase());
+  const stays = DEPARTURE_KINDS.filter((k) => departure.value[k.key] === "stay")
+    .map((k) => k.label.toLowerCase());
+
+  const parts = [];
+  if (goes.length) parts.push(`The ${goes.join(" and ")} they shared go back to them.`);
+  if (stays.length) parts.push(`The ${stays.join(" and ")} stay with the household.`);
+  parts.push("Nothing is deleted. You can change this under \u201cWhen someone leaves\u201d.");
+
+  return parts.join(" ");
+}
+
 /** What went home with them, in words rather than a count. */
 function keptLabel(kept) {
   if (!kept) return undefined;
+  if (!kept.went_home && !kept.stayed) return "They had shared nothing with the family.";
 
-  const parts = [
-    [kept.files, "file", "files"],
-    [kept.records, "record", "records"],
-  ]
-    .filter(([n]) => n > 0)
-    .map(([n, one, many]) => `${n} ${n === 1 ? one : many}`);
+  const said = [];
+  if (kept.went_home) said.push(`${kept.went_home} went back to them`);
+  if (kept.stayed) said.push(`${kept.stayed} stayed with the household`);
 
-  if (!parts.length) return "They had shared nothing with the family.";
-
-  return `${parts.join(" and ")} they shared went back to them.`;
+  return `${said.join(", ")}.`;
 }
 
 async function removeMember(member) {
   const ok = await dialog.confirm({
     title: `Remove ${member.user.full_name}?`,
     message: "They lose access to everything the family shares, straight away.",
-    detail:
-      "Anything they shared goes back to being theirs and stops being shared — you will no " +
-      "longer see it. Nothing is deleted. Copy anything the household needs to keep before " +
-      "you remove them.",
+    detail: departureDetail(),
     confirmLabel: "Remove",
     danger: true,
   });
@@ -946,6 +987,59 @@ async function removeMember(member) {
               </template>
             </li>
           </ul>
+
+          <!-- What each kind of thing does when somebody leaves. One rule for
+               everything was wrong both ways: keeping it all took people's own
+               photographs off them, sending it all home lost the household the
+               deed somebody scanned for it. -->
+          <div v-if="canManage" class="mt-8 border-t border-gray-200 pt-6">
+            <h3 class="text-body font-semibold text-gray-700">When someone leaves</h3>
+            <p class="mt-1 text-body-sm text-gray-500">
+              What they shared either goes back to them, unshared, or stays with the household.
+              Nothing is ever deleted.
+            </p>
+
+            <ul class="mt-4 space-y-2">
+              <li
+                v-for="kind in DEPARTURE_KINDS"
+                :key="kind.key"
+                class="flex flex-wrap items-center gap-4 rounded-base border border-gray-200 p-4"
+              >
+                <div class="min-w-56 flex-1">
+                  <p class="text-body-sm font-medium text-gray-800">{{ kind.label }}</p>
+                  <p class="text-caption text-gray-500">{{ kind.hint }}</p>
+                </div>
+
+                <div class="flex shrink-0 gap-2" role="radiogroup" :aria-label="kind.label">
+                  <button
+                    v-for="choice in [
+                      { value: 'home', label: 'Go back to them' },
+                      { value: 'stay', label: 'Stay with us' },
+                    ]"
+                    :key="choice.value"
+                    type="button"
+                    role="radio"
+                    :aria-checked="departure[kind.key] === choice.value"
+                    :disabled="savingDeparture"
+                    :class="[
+                      'rounded-base border px-3 py-1.5 text-body-sm font-medium transition disabled:opacity-60',
+                      departure[kind.key] === choice.value
+                        ? 'border-primary-600 bg-primary-50 text-primary-700'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50',
+                    ]"
+                    @click="setDeparture(kind.key, choice.value)"
+                  >
+                    {{ choice.label }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+
+            <p class="mt-2 text-caption text-gray-500">
+              A document attached to a register entry that stays will stay with it, whatever
+              Documents is set to — otherwise the entry would point at nothing.
+            </p>
+          </div>
 
           <div v-if="canManage" class="mt-8 border-t border-gray-200 pt-6">
             <h3 class="text-body font-semibold text-gray-700">Invite someone</h3>

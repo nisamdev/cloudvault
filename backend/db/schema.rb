@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_28_043500) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -79,9 +79,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_043500) do
     t.bigint "family_storage_quota", default: 2147483648, null: false
     t.bigint "family_storage_used", default: 0, null: false
     t.string "name", null: false
+    t.string "on_departure_files", default: "stay", null: false
+    t.string "on_departure_photos", default: "home", null: false
+    t.string "on_departure_records", default: "stay", null: false
     t.bigint "owner_id", null: false
     t.datetime "updated_at", null: false
     t.index ["owner_id"], name: "index_families_on_owner_id"
+    t.check_constraint "on_departure_files::text = ANY (ARRAY['home'::character varying, 'stay'::character varying]::text[])", name: "families_on_departure_files_check"
+    t.check_constraint "on_departure_photos::text = ANY (ARRAY['home'::character varying, 'stay'::character varying]::text[])", name: "families_on_departure_photos_check"
+    t.check_constraint "on_departure_records::text = ANY (ARRAY['home'::character varying, 'stay'::character varying]::text[])", name: "families_on_departure_records_check"
   end
 
   create_table "family_invitations", force: :cascade do |t|

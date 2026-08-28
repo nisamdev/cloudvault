@@ -2,26 +2,23 @@
 
 # Taking somebody out of a family, and settling what they leave behind.
 #
-# What they shared goes home with them. They uploaded it, it was theirs
-# throughout, and being removed from a family does not make their photograph
-# somebody else's — so it is unshared back to their own private files, whole
-# and still theirs, and the family stops seeing it.
+# A holiday photograph and a scanned deed are not the same kind of thing and do
+# not want the same answer, so the family says which is which — see
+# `Family#departure_policy`. By default a photograph goes home with whoever took
+# it, and documents and register entries stay with the household they were
+# contributed to.
 #
-# This is the second answer to the question. The first was that the household
-# kept what it had been given, which reads well until you watch it happen: the
-# person who took the photograph loses it, and the person who removed them
-# keeps it. Whatever the argument for a household keeping the passports
-# somebody scanned for it, it cannot be worth taking their own pictures off
-# them.
+# "home" unshares it back to their own files: still theirs, whole, nothing
+# deleted, and the family stops seeing it. "stay" leaves it shared and passes it
+# to whoever owns the family, so nobody outside still holds the keys to what the
+# household depends on.
 #
-# So nothing changes hands. What leaves the family is only the sharing.
+# One thing overrides the policy: a file attached to a record that stays, stays.
+# A retained record pointing at a document that walked out of the door is worse
+# than either answer.
 class FamilyDeparture
-  Summary = Struct.new(:files, :records, :folders, :sealed_secrets, keyword_init: true) do
-    def anything? = files.positive? || records.positive? || folders.positive?
-
-    def to_h
-      { files: files, records: records, folders: folders, sealed_secrets: sealed_secrets }
-    end
+  Summary = Struct.new(:went_home, :stayed, :policy, keyword_init: true) do
+    def to_h = { went_home: went_home, stayed: stayed, policy: policy }
   end
 
   # Shared with the family, as opposed to kept private within it.
@@ -112,14 +109,22 @@ class FamilyDeparture
   end
 
   def call
-    files = shared_files.to_a
+    policy = @family.departure_policy
+    leaving, staying = split_files(policy)
     records = shared_records.to_a
 
     ActiveRecord::Base.transaction do
-      files.each { |file| self.class.send_home(file, @leaver.id) }
-      records.each { |record| self.class.send_home(record, @leaver.id) }
-      # A folder is a place, not a possession: it stays with the family.
-      shared_folders.update_all(user_id: @heir_id, updated_at: Time.current) if @heir_id.present?
+      leaving.each { |file| self.class.send_home(file, @leaver.id) }
+      hand_over(StoredFile.where(id: staying.map(&:id)))
+
+      if policy[:records] == "home"
+        records.each { |record| self.class.send_home(record, @leaver.id) }
+      else
+        hand_over(VaultRecord.where(id: records.map(&:id)))
+      end
+
+      # A folder is a place, not a possession: it stays either way.
+      hand_over(shared_folders)
 
       # Anything granted to them by name on this family's things goes too;
       # being removed should not leave a side door open.
@@ -129,7 +134,11 @@ class FamilyDeparture
       @membership.destroy!
     end
 
-    Summary.new(files: files.size, records: records.size, folders: 0, sealed_secrets: 0)
+    Summary.new(
+      went_home: leaving.size + (policy[:records] == "home" ? records.size : 0),
+      stayed: staying.size + (policy[:records] == "stay" ? records.size : 0),
+      policy: policy
+    )
   end
 
   private
@@ -145,6 +154,34 @@ class FamilyDeparture
 
   def shared_folders
     Folder.where(user_id: @leaver.id, family_id: @family.id)
+  end
+
+  # Which of their files go with them and which stay, by kind — and never a
+  # document some retained record depends on.
+  def split_files(policy)
+    files = shared_files.to_a
+    pinned = attached_to_retained_records(policy)
+
+    files.partition do |file|
+      kind = file.file_type == "image" ? :photos : :files
+      policy[kind] == "home" && !pinned.include?(file.id)
+    end
+  end
+
+  # A record that stays keeps the documents it points at, whatever the policy
+  # says about documents.
+  def attached_to_retained_records(policy)
+    return Set.new if policy[:records] == "home"
+
+    RecordAttachment.where(vault_record_id: shared_records.select(:id))
+                    .pluck(:stored_file_id)
+                    .to_set
+  end
+
+  def hand_over(scope)
+    return 0 if @heir_id.blank? || @heir_id == @leaver.id
+
+    scope.update_all(user_id: @heir_id, updated_at: Time.current)
   end
 
   def revoke_their_grants

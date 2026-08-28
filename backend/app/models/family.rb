@@ -17,6 +17,24 @@ class Family < ApplicationRecord
   # family nobody can administer.
   after_create :add_owner_as_member
 
+  # What each kind of thing does when somebody leaves. A photograph is personal
+  # and goes back to whoever took it; a document or a register entry was
+  # contributed to the household and stays with it.
+  DEPARTURE_CHOICES = %w[home stay].freeze
+  DEPARTURE_KINDS = %i[photos files records].freeze
+
+  validates :on_departure_photos, :on_departure_files, :on_departure_records,
+            inclusion: { in: DEPARTURE_CHOICES }
+
+  # @param kind [:photos, :files, :records]
+  def keeps_on_departure?(kind)
+    public_send("on_departure_#{kind}") == "stay"
+  end
+
+  def departure_policy
+    DEPARTURE_KINDS.index_with { |kind| public_send("on_departure_#{kind}") }
+  end
+
   def storage_remaining
     [ family_storage_quota - family_storage_used, 0 ].max
   end

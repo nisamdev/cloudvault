@@ -40,9 +40,8 @@ module Api
 
         return render_role_error("The owner cannot be removed from the family.") if member.owner?
 
-        # What they shared stays with the family and becomes the owner's: a
-        # departing person must not take the passports they scanned, and must
-        # not keep the keys to them either.
+        # What leaves with them and what stays is the family's own choice, kind
+        # by kind — a photograph is personal, a scanned deed was contributed.
         summary = FamilyDeparture.new(member).call
 
         render json: { kept: summary.to_h }

@@ -116,7 +116,9 @@ module Api
       end
 
       def family_params
-        params.require(:family).permit(:name, :description)
+        params.require(:family).permit(:name, :description,
+                                       :on_departure_photos, :on_departure_files,
+                                       :on_departure_records)
       end
 
       def serialize_family(family, user)
@@ -128,6 +130,7 @@ module Api
           description: family.description,
           role: membership&.role,
           can_use_vault: membership.nil? || membership.can_use_vault?,
+          on_departure: family.departure_policy,
           storage_quota: family.family_storage_quota,
           storage_used: family.family_storage_used,
           storage_percent_used: family.storage_percent_used,
