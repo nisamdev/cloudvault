@@ -640,7 +640,11 @@ function photoMenu(event, file) {
       title: `${selectedCount.value} selected`,
       items: [
         { label: "Download as ZIP", icon: "fa-file-zipper", action: () => runBulk("download") },
-        { label: "Move to My Files", icon: "fa-file-lines", action: () => runBulk("document") },
+        // The same three moves the bar offers, in the same words. Two menus
+        // over the same selection saying different things is how somebody ends
+        // up pressing the one they did not mean.
+        { label: "Put in an album…", icon: "fa-folder", action: () => runBulk("album") },
+        { label: "These aren't photos", icon: "fa-file-lines", action: () => runBulk("document") },
         vault.exists && {
           label: "Move to Private", icon: "fa-lock", action: () => runBulk("private"),
         },
