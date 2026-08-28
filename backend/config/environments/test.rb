@@ -4,6 +4,13 @@
 # and recreated between test runs. Don't rely on the data there!
 
 Rails.application.configure do
+
+  # Migrating the test database must not rewrite db/schema.rb. Postgres renders
+  # a check constraint differently depending on whether it arrived by migration
+  # or by schema load, so letting both write the file makes it flip back and
+  # forth between two identical spellings. Development is where migrations run,
+  # and development is what dumps it.
+  config.active_record.dump_schema_after_migration = false
   # Settings specified here will take precedence over those in config/application.rb.
 
   # While tests run files are not watched, reloading is not necessary.
