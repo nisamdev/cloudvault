@@ -14,6 +14,7 @@ import UploadZone from "@/components/files/UploadZone.vue";
 import FilterBar from "@/components/files/FilterBar.vue";
 import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
+import PhotoPlacePicker from "@/components/files/PhotoPlacePicker.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import BulkActionBar from "@/components/ui/BulkActionBar.vue";
@@ -37,6 +38,8 @@ const {
   selectedOf,
 } = useSelection();
 const contextMenu = useContextMenu();
+/** The photograph having its place set, if any. */
+const placingFile = ref(null);
 const dialog = useDialog();
 const toast = useToast();
 const bulkBusy = ref(false);
@@ -101,6 +104,9 @@ const filters = ref({
   visibility: "",
   orientation: "",
   has_location: "",
+  // Where somebody said it was taken, which is the only place most of the
+  // gallery will ever know.
+  place: "",
   date_from: "",
   date_to: "",
   label_ids: [],
@@ -151,7 +157,7 @@ const showEmpty = computed(() => !filesStore.loading && filesStore.items.length 
 const hasFilters = computed(() => {
   const f = filters.value;
   return Boolean(
-    f.owner_id || f.visibility || f.orientation || f.has_location ||
+    f.owner_id || f.visibility || f.orientation || f.has_location || f.place ||
     f.date_from || f.date_to || f.label_ids.length,
   );
 });
@@ -393,6 +399,12 @@ function onPhotoClick(event, file) {
   previewFile.value = file;
 }
 
+function onPlaceSaved(updated) {
+  const index = filesStore.items.findIndex((f) => f.id === updated.id);
+  if (index >= 0) filesStore.items.splice(index, 1, updated);
+  if (detailsFile.value?.id === updated.id) detailsFile.value = updated;
+}
+
 function selectedPhotos() {
   return selectedOf("file")
     .map((id) => filesStore.items.find((f) => String(f.id) === String(id)))
@@ -486,6 +498,13 @@ function photoMenu(event, file) {
       { label: "Preview", icon: "fa-eye", action: () => (previewFile.value = file) },
       { label: "Download", icon: "fa-download", action: () => onDownload(file) },
       { label: "Details", icon: "fa-circle-info", action: () => (detailsFile.value = file) },
+      {
+        // Almost no photograph arrives knowing where it was taken, so this is
+        // the only way the gallery will ever be searchable by place.
+        label: file.image?.place_name ? "Change the place" : "Say where it was taken",
+        icon: "fa-location-dot",
+        action: () => (placingFile.value = file),
+      },
       file.permissions.can_share && {
         label: "Share…", icon: "fa-share-nodes", action: () => (sharingFile.value = file),
       },
@@ -769,5 +788,12 @@ function photoMenu(event, file) {
     <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
 
     <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
+
+    <PhotoPlacePicker
+      v-if="placingFile"
+      :file="placingFile"
+      @saved="onPlaceSaved"
+      @close="placingFile = null"
+    />
   </section>
 </template>

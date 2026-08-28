@@ -118,6 +118,17 @@ class StoredFile < ApplicationRecord
 
   scope :with_location, -> { where.not(latitude: nil).where.not(longitude: nil) }
 
+  # Where a photograph was taken, as somebody said it. Almost nothing arrives
+  # with GPS still attached, so this is the only place most of the gallery will
+  # ever know about — which makes it what "search by place" searches.
+  scope :taken_at_place, lambda { |place|
+    return all if place.blank?
+
+    where("place_name ILIKE ?", "%#{sanitize_sql_like(place.to_s.strip)}%")
+  }
+
+  scope :placed, -> { where.not(place_name: [ nil, "" ]) }
+
   # The date the gallery should file this under.
   def captured_at
     taken_at || created_at

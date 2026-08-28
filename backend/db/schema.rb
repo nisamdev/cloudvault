@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -150,6 +150,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
   create_table "folders", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "family_id"
+    t.boolean "is_default", default: false, null: false
+    t.string "kind", default: "file", null: false
     t.boolean "locked", default: false, null: false
     t.string "name", null: false
     t.bigint "parent_id"
@@ -161,8 +163,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
     t.index ["family_id"], name: "index_folders_on_family_id"
     t.index ["name"], name: "index_folders_on_name_trgm", opclass: :gin_trgm_ops, using: :gin
     t.index ["parent_id"], name: "index_folders_on_parent_id"
+    t.index ["user_id", "kind"], name: "index_folders_on_user_id_and_kind"
+    t.index ["user_id", "kind"], name: "index_folders_one_default_per_kind", unique: true, where: "(is_default AND (trashed_at IS NULL))"
     t.index ["user_id", "locked"], name: "index_folders_on_user_id_and_locked"
     t.index ["user_id"], name: "index_folders_on_user_id"
+    t.check_constraint "kind::text = ANY (ARRAY['file'::character varying, 'photo'::character varying]::text[])", name: "folders_kind_check"
   end
 
   create_table "labels", force: :cascade do |t|
@@ -302,6 +307,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
     t.decimal "longitude", precision: 10, scale: 6
     t.string "mime_type", null: false
     t.string "name", null: false
+    t.string "place_name"
     t.virtual "search_vector", type: :tsvector, as: "to_tsvector('english'::regconfig, translate((COALESCE(name, ''::character varying))::text, '_-.'::text, '   '::text))", stored: true
     t.bigint "size", default: 0, null: false
     t.datetime "taken_at"
@@ -316,6 +322,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_28_120000) do
     t.index ["folder_id"], name: "index_stored_files_on_folder_id"
     t.index ["latitude", "longitude"], name: "index_stored_files_on_coordinates", where: "((latitude IS NOT NULL) AND (longitude IS NOT NULL))"
     t.index ["name"], name: "index_stored_files_on_name_trgm", opclass: :gin_trgm_ops, using: :gin
+    t.index ["place_name"], name: "index_stored_files_on_place_name"
     t.index ["search_vector"], name: "index_stored_files_on_search_vector", using: :gin
     t.index ["taken_at"], name: "index_stored_files_on_taken_at"
     t.index ["user_id", "locked"], name: "index_stored_files_on_user_id_and_locked"

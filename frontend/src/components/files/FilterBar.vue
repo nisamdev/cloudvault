@@ -94,8 +94,11 @@ const activeChips = computed(() => {
     chips.push({ key: "orientation", label: f.orientation, clear: { orientation: "" } });
   }
 
+  if (f.place) {
+    chips.push({ key: "place", label: `Place: ${f.place}`, clear: { place: "" } });
+  }
   if (f.has_location) {
-    chips.push({ key: "location", label: "Has location", clear: { has_location: "" } });
+    chips.push({ key: "location", label: "Pinned on a map", clear: { has_location: "" } });
   }
 
   for (const id of f.label_ids ?? []) {
@@ -120,6 +123,7 @@ const activeCount = computed(() => {
     f.visibility,
     f.orientation,
     f.has_location,
+    f.place,
     f.date_from,
     f.date_to,
     f.label_ids?.length ? "1" : "",
@@ -168,6 +172,7 @@ function clearAll() {
     visibility: "",
     orientation: "",
     has_location: "",
+    place: "",
     date_from: "",
     date_to: "",
     label_ids: [],
@@ -301,9 +306,25 @@ function clearAll() {
         </select>
       </div>
 
+      <!-- Searching by place searches what somebody wrote on the photograph,
+           not its EXIF: almost none of them arrive knowing where they were. -->
+      <div v-if="photoFilters">
+        <label for="gallery-place" class="mb-1 block text-label font-medium text-gray-600">
+          Place
+        </label>
+        <input
+          id="gallery-place"
+          type="search"
+          :value="modelValue.place"
+          placeholder="Edmonton, the beach…"
+          class="w-full rounded-base border border-gray-300 px-3 py-2 text-body-sm outline-none focus:ring-2 focus:ring-primary-500"
+          @change="update({ place: $event.target.value })"
+        />
+      </div>
+
       <div v-if="photoFilters">
         <label for="gallery-location" class="mb-1 block text-label font-medium text-gray-600">
-          Location
+          Has a place
         </label>
         <select
           id="gallery-location"
@@ -312,7 +333,7 @@ function clearAll() {
           @change="update({ has_location: $event.target.value })"
         >
           <option value="">Anywhere</option>
-          <option value="true">Has location</option>
+          <option value="true">Pinned on a map</option>
         </select>
       </div>
 

@@ -58,6 +58,7 @@ module Api
         scope = scope.with_orientation(params[:orientation])
         scope = scope.uploaded_between(*date_range)
         scope = scope.with_location if params[:has_location] == "true"
+        scope = scope.taken_at_place(params[:place]) if params[:place].present?
 
         pagy, records = pagy(
           scope.sorted_by(params[:sort]).includes(:user, :folder, :labels, attachment_attachment: :blob),
@@ -1080,7 +1081,8 @@ module Api
         # Accepts either a flat body ({ "visibility": "family" }) or a nested
         # one under file_attributes.
         source = params[:file_attributes].presence || params
-        source.permit(:name, :visibility, :folder_id, :file_type)
+        source.permit(:name, :visibility, :folder_id, :file_type,
+                      :place_name, :latitude, :longitude)
       end
 
       # Resolves date_from/date_to into a time range in the viewer's timezone.
@@ -1146,7 +1148,10 @@ module Api
             # When the shutter fired, if the file said so.
             taken_at: file.taken_at,
             camera: file.camera,
-            location: file.location? ? { latitude: file.latitude.to_f, longitude: file.longitude.to_f } : nil
+            location: file.location? ? { latitude: file.latitude.to_f, longitude: file.longitude.to_f } : nil,
+            # Where somebody said it was taken. Almost never in the EXIF, so
+            # almost always this or nothing.
+            place_name: file.place_name
           }
           # What the gallery groups and sorts by.
           payload[:captured_at] = file.captured_at

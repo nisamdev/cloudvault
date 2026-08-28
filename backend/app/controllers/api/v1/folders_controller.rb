@@ -20,7 +20,13 @@ module Api
         # contains it, open or not.
         scope = visible_folders.active
         scope = params[:locked] == "true" ? only_locked(scope) : hide_locked(scope)
-        folders = scope.order(:name)
+        # Albums and document folders are two cabinets, and each screen asks
+        # only for its own. Anything not asking gets the documents, as before.
+        scope = scope.of_kind(params[:kind])
+        # A gallery that has never been opened has nowhere to put a photograph
+        # yet, so asking for the albums is what brings the first one into being.
+        Folder.default_for(current_user, kind: "photo", family: current_family) if params[:kind] == "photo"
+        folders = scope.reload.order(:is_default => :desc, :name => :asc)
 
         render json: {
           folders: folders.map { |folder| serialize(folder) },
@@ -318,7 +324,7 @@ module Api
       end
 
       def folder_params
-        params.require(:folder).permit(:name, :parent_id, :family)
+        params.require(:folder).permit(:name, :parent_id, :family, :kind)
       end
 
       # A folder made inside a private one is private from the moment it exists,
@@ -337,6 +343,8 @@ module Api
           parent_id: folder.parent_id,
           shared: folder.family_id.present?,
           locked: folder.locked?,
+          kind: folder.kind,
+          is_default: folder.is_default,
           file_count: StoredFile.where(folder_id: folder.id, trashed_at: nil).count,
           created_at: folder.created_at
         }

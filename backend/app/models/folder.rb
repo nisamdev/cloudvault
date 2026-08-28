@@ -13,8 +13,26 @@ class Folder < ApplicationRecord
   validate :parent_must_not_be_self_or_descendant
   validate :name_unique_among_siblings
 
+  KINDS = %w[file photo].freeze
+
+  validates :kind, inclusion: { in: KINDS }
+
   scope :active, -> { where(trashed_at: nil) }
   scope :roots, -> { where(parent_id: nil) }
+  # Which cabinet this belongs to. An album has no business in the tree that
+  # holds the mortgage.
+  scope :of_kind, ->(kind) { where(kind: KINDS.include?(kind.to_s) ? kind.to_s : "file") }
+
+  # Where loose photographs live until somebody files them somewhere better.
+  # Made when it is first needed rather than at sign-up, so an account that
+  # never opens the gallery never grows one.
+  def self.default_for(user, kind: "photo", family: nil)
+    existing = active.of_kind(kind).find_by(user_id: user.id, is_default: true)
+    return existing if existing
+
+    create!(user: user, family: family, kind: kind, is_default: true,
+            name: kind == "photo" ? "All photos" : "All files")
+  end
 
   # Breadcrumb trail, root first.
   def ancestors
