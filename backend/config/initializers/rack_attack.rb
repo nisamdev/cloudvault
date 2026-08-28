@@ -37,8 +37,10 @@ class Rack::Attack
     req.ip if req.path == "/api/v1/auth/register" && req.post?
   end
 
-  # General API ceiling.
-  throttle("api/ip", limit: 300, period: 5.minutes) do |req|
+  # General API ceiling. Bulk photo uploads legitimately fan out into many
+  # requests (upload + per-photo thumbnail reprocess/status polling), so this
+  # needs enough headroom for that, not just a trickle of normal browsing.
+  throttle("api/ip", limit: 1500, period: 5.minutes) do |req|
     req.ip if req.path.start_with?("/api/")
   end
 

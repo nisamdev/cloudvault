@@ -101,6 +101,37 @@ RSpec.describe FileUploader do
         end
       }.not_to change { user.reload.storage_used }
     end
+
+    it "refuses a video when the uploader has not turned videos on" do
+      expect(user.videos_enabled).to be false
+
+      expect {
+        described_class.new(user: user).call(upload_of(filename: "clip.mp4", type: "video/mp4"))
+      }.to raise_error(described_class::UnsupportedType, /video/i)
+    end
+
+    it "accepts a video once the uploader has turned videos on" do
+      user.update!(videos_enabled: true)
+
+      stored = described_class.new(user: user).call(upload_of(filename: "clip.mp4", type: "video/mp4"))
+      expect(stored).to be_persisted
+    end
+
+    it "holds video to its own, larger size limit rather than MAX_UPLOAD_BYTES" do
+      user.update!(videos_enabled: true)
+      allow(ENV).to receive(:fetch).and_call_original
+      allow(ENV).to receive(:fetch).with("MAX_UPLOAD_BYTES", 104_857_600).and_return("5")
+      allow(ENV).to receive(:fetch).with("MAX_VIDEO_UPLOAD_BYTES", 2.gigabytes).and_return(1_000_000)
+
+      # Bigger than the (stubbed) generic limit but under the video limit.
+      stored = described_class.new(user: user).call(upload_of(filename: "clip.mp4", type: "video/mp4"))
+      expect(stored).to be_persisted
+
+      allow(ENV).to receive(:fetch).with("MAX_VIDEO_UPLOAD_BYTES", 2.gigabytes).and_return("5")
+      expect {
+        described_class.new(user: user).call(upload_of(filename: "clip2.mp4", type: "video/mp4"))
+      }.to raise_error(described_class::FileTooLarge)
+    end
   end
 
   describe "versioning" do

@@ -12,6 +12,9 @@ class StoredFile < ApplicationRecord
   FILE_TYPES = %w[file image].freeze
   VISIBILITIES = %w[private family shared_link].freeze
   IMAGE_MIME_PREFIX = "image/"
+  # Videos stay file_type "file" (My Files) rather than getting a type of their
+  # own — see picture?/image? below for why that split isn't free.
+  VIDEO_MIME_PREFIX = "video/"
 
   belongs_to :user
   belongs_to :family, optional: true
@@ -152,6 +155,7 @@ class StoredFile < ApplicationRecord
   #
   # So a thumbnail follows `picture?` and the two sections follow `image?`.
   def picture? = mime_type.to_s.start_with?(IMAGE_MIME_PREFIX)
+  def movie? = mime_type.to_s.start_with?(VIDEO_MIME_PREFIX)
 
   def image? = file_type == "image"
   def trashed? = trashed_at.present?

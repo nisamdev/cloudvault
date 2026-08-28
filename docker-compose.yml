@@ -45,6 +45,7 @@ x-api-env: &api-env
   USER_STORAGE_QUOTA_BYTES: ${USER_STORAGE_QUOTA_BYTES:-268435456}
   FAMILY_STORAGE_QUOTA_BYTES: ${FAMILY_STORAGE_QUOTA_BYTES:-2147483648}
   MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-104857600}
+  MAX_VIDEO_UPLOAD_BYTES: ${MAX_VIDEO_UPLOAD_BYTES:-2147483648}
   FILE_VERSIONS_KEPT: ${FILE_VERSIONS_KEPT:-3}
   TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -201,8 +202,10 @@ services:
       target: development
     command: ["sh", "-c", "npm run dev -- --host 0.0.0.0 --port 5173"]
     environment:
-      # Dev server proxies /api to the api service (see vite.config.js).
-      VITE_API_URL: ${API_URL:-http://localhost:3000}
+      # Same-origin /api proxy to the api service (see vite.config.js).
+      # Do not also set VITE_API_URL here: an absolute URL defeats the
+      # proxy, makes axios call localhost:3100 directly, and that's
+      # cross-origin (CORS-blocked, and unreachable from a tunnel/phone).
       VITE_PROXY_TARGET: http://api:3000
     ports:
       - "${WEB_PORT:-5173}:5173"

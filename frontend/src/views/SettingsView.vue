@@ -28,7 +28,7 @@ const sessions = ref([]);
 const members = ref([]);
 const invitations = ref([]);
 
-const profile = ref({ full_name: "", timezone: "" });
+const profile = ref({ full_name: "", timezone: "", videos_enabled: false });
 const savingProfile = ref(false);
 
 const passwords = ref({ current_password: "", password: "", confirm: "" });
@@ -77,6 +77,7 @@ async function load() {
     profile.value = {
       full_name: account.value.full_name ?? "",
       timezone: account.value.timezone ?? "",
+      videos_enabled: account.value.videos_enabled ?? false,
     };
 
     if (auth.family) {
@@ -429,6 +430,24 @@ async function removeMember(member) {
                 class="w-full rounded-base border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
               />
               <p class="mt-1 text-caption text-gray-500">Used to decide what counts as "today" in your photo filters.</p>
+            </div>
+
+            <div>
+              <label class="flex items-start gap-3">
+                <input
+                  v-model="profile.videos_enabled"
+                  type="checkbox"
+                  class="mt-1 accent-primary-600"
+                />
+                <span>
+                  <span class="block text-body-sm font-medium text-gray-700">Allow video uploads</span>
+                  <span class="block text-caption text-gray-500">
+                    Videos are off by default since a single clip — an Insta360 export, say —
+                    can run into the gigabytes. Turning this on raises the per-file size limit
+                    for video specifically.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div>
