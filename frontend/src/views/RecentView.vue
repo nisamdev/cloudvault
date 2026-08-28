@@ -177,6 +177,6 @@ function menu(event, file) {
       @close="previewFile = null"
     />
     <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
-    <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
+    <ShareModal v-if="sharingFile" kind="file" :subject="sharingFile" @close="sharingFile = null" />
   </section>
 </template>

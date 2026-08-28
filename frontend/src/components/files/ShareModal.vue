@@ -5,13 +5,37 @@ import { useAuthStore } from "@/stores/auth";
 import { useFilesStore } from "@/stores/files";
 import { formatFileSize } from "@/utils/formatting";
 
+/**
+ * One dialog for sharing anything: a file, an album, or a household record.
+ *
+ * Three of these had grown, one per kind, saying the same things three
+ * different ways — which is three places to fix anything and three chances for
+ * them to disagree. The sections are the same everywhere; what differs is
+ * which of them a thing can actually do, and that comes from the kind.
+ */
 const props = defineProps({
-  file: { type: Object, required: true },
+  /** "file" | "album" | "record" */
+  kind: { type: String, default: "file" },
+  /** The thing being shared. A file, a folder, or a record. */
+  subject: { type: Object, required: true },
 });
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "changed"]);
 
 const auth = useAuthStore();
 const filesStore = useFilesStore();
+
+const NOUNS = { file: "file", album: "album", record: "record" };
+const PATHS = { file: "files", album: "folders", record: "records" };
+
+const noun = computed(() => NOUNS[props.kind] ?? "file");
+const base = computed(() => `/${PATHS[props.kind] ?? "files"}/${props.subject.id}`);
+
+/** Only a file carries a visibility of its own; an album shares by grant. */
+const hasVisibility = computed(() => props.kind === "file");
+/** Records have no grants API yet, so they share by link alone. */
+const hasGrants = computed(() => props.kind !== "record");
+
+const title = computed(() => props.subject.name || props.subject.title || "this");
 
 /**
  * Both of these controls were written from the point of view of whoever
@@ -19,13 +43,13 @@ const filesStore = useFilesStore();
  * else's shared file does not keep it — it hands it back to them and takes it
  * away from you.
  */
-const mine = computed(() => props.file.owner?.id === auth.user?.id);
-const uploader = computed(() => props.file.owner?.name || "whoever uploaded it");
+const mine = computed(() => (props.subject.owner?.id ?? auth.user?.id) === auth.user?.id);
+const uploader = computed(() => props.subject.owner?.name || "whoever uploaded it");
 
 // Family sharing is a property of the file itself, separate from public links:
 // one controls who inside the family can see it, the other hands access to
 // anyone holding a URL.
-const visibility = ref(props.file.visibility);
+const visibility = ref(props.subject.visibility);
 const savingVisibility = ref(false);
 
 async function setVisibility(next) {
@@ -37,7 +61,7 @@ async function setVisibility(next) {
   visibility.value = next;
 
   try {
-    const { data } = await api.patch(`/files/${props.file.id}`, { visibility: next });
+    const { data } = await api.patch(base.value, { visibility: next });
     // Keep the list behind the modal in step (the Family badge, permissions).
     const index = filesStore.items.findIndex((f) => f.id === data.file.id);
     if (index >= 0) filesStore.items.splice(index, 1, data.file);
@@ -60,7 +84,7 @@ const grantError = ref("");
 
 async function loadGrants() {
   try {
-    const { data } = await api.get(`/files/${props.file.id}/grants`);
+    const { data } = await api.get(`${base.value}/grants`);
     grants.value = data.grants;
   } catch {
     // Not fatal: the rest of the dialog still works without the list.
@@ -77,7 +101,7 @@ async function addGrant() {
         ? { family_id: auth.family.id, role: grantRole.value }
         : { email: grantEmail.value.trim(), role: grantRole.value };
 
-    const { data } = await api.post(`/files/${props.file.id}/grants`, payload);
+    const { data } = await api.post(`${base.value}/grants`, payload);
 
     // Re-sharing changes the role rather than adding a row, so replace in place.
     const index = grants.value.findIndex((g) => g.id === data.grant.id);
@@ -176,7 +200,7 @@ function onKeydown(event) {
 
 async function loadExisting() {
   try {
-    const { data } = await api.get(`/files/${props.file.id}/shares`);
+    const { data } = await api.get(`${base.value}/shares`);
     existingShares.value = data.shares;
   } catch {
     // Listing is a convenience; failing to load it must not block sharing.
@@ -188,7 +212,7 @@ async function createLink() {
   error.value = "";
 
   try {
-    const { data } = await api.post(`/files/${props.file.id}/shares`, {
+    const { data } = await api.post(`${base.value}/shares`, {
       expires_in: expiresIn.value,
       password: usePassword.value ? password.value : undefined,
     });
@@ -234,9 +258,15 @@ async function revoke(share) {
     >
       <header class="flex items-start justify-between border-b border-gray-200 p-6">
         <div class="min-w-0">
-          <h2 id="share-modal-title" class="text-h3 font-semibold text-gray-800">Share file</h2>
+          <h2 id="share-modal-title" class="text-h3 font-semibold text-gray-800">
+            Share this {{ noun }}
+          </h2>
           <p class="mt-1 truncate text-body-sm text-gray-500">
-            {{ file.name }} · {{ formatFileSize(file.size) }}
+            {{ title }}
+            <template v-if="kind === 'file'"> · {{ formatFileSize(subject.size) }}</template>
+            <template v-else-if="kind === 'album'">
+              · {{ subject.file_count }} {{ subject.file_count === 1 ? "photo" : "photos" }}
+            </template>
           </p>
         </div>
         <button
@@ -259,13 +289,15 @@ async function revoke(share) {
           {{ error }}
         </p>
 
-        <!-- Family access -->
-        <div v-if="auth.family">
+        <!-- Family access. Only a file carries a visibility of its own; an
+             album is opened to the family by naming them below, and a record's
+             visibility is set on the record itself. -->
+        <div v-if="auth.family && hasVisibility">
           <h3 class="mb-2 text-label font-medium uppercase tracking-wide text-gray-500">
-            Who can see this file
+            Who can see this {{ noun }}
           </h3>
 
-          <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="File visibility">
+          <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Visibility">
             <button
               type="button"
               role="radio"
@@ -319,7 +351,7 @@ async function revoke(share) {
         <!-- Sharing with someone named, as opposed to anyone with a link. This
              is what makes "my accountant, this folder, read only" possible
              without making them part of the family. -->
-        <div class="border-t border-gray-200 pt-5">
+        <div v-if="hasGrants" class="border-t border-gray-200 pt-5">
           <h3 class="mb-2 text-label font-medium uppercase tracking-wide text-gray-500">
             People with access
           </h3>
@@ -512,7 +544,7 @@ async function revoke(share) {
             <span v-else>Create share link</span>
           </button>
 
-          <p v-if="props.file.file_type === 'image'" class="flex items-start gap-2 text-caption text-gray-500">
+          <p v-if="kind === 'file' && subject.file_type === 'image'" class="flex items-start gap-2 text-caption text-gray-500">
             <i class="fas fa-location-crosshairs mt-0.5" aria-hidden="true"></i>
             <span>
               Location and camera details are stripped from photos downloaded

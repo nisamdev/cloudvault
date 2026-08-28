@@ -209,3 +209,124 @@ RSpec.describe "Api::V1 removing an album" do
     expect(document.reload.trashed_at).to be_present
   end
 end
+
+# Two people in one household both opening the gallery.
+RSpec.describe "Api::V1 a gallery per person" do
+  let(:family) { create(:family) }
+  let(:owner) { family.owner }
+  let(:relative) { create(:user) }
+  let!(:membership) { create(:family_member, family: family, user: relative, role: "editor") }
+
+  # Folder names are unique within a family, so a default album scoped to the
+  # family meant the second person to open the gallery got a validation error
+  # instead of a gallery.
+  it "gives each of them their own default album" do
+    get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(owner)
+    expect(response).to have_http_status(:ok)
+    theirs = json["folders"].first
+
+    get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(relative)
+
+    expect(response).to have_http_status(:ok)
+    expect(json["folders"].first["id"]).not_to eq(theirs["id"])
+    expect(json["folders"].first["name"]).to eq("All photos")
+  end
+
+  it "keeps a default album out of the family, so it cannot collide" do
+    get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(owner)
+
+    expect(Folder.find(json["folders"].first["id"]).family_id).to be_nil
+  end
+
+  describe "an album shared with the family" do
+    let(:album) { create(:folder, user: owner, kind: "photo", name: "Cornwall") }
+    let!(:photo) do
+      create(:stored_file, user: owner, file_type: "image", mime_type: "image/jpeg",
+                           folder_id: album.id, visibility: "private")
+    end
+
+    before do
+      AccessGrant.create!(resource: album, subject: family, role: "viewer", granted_by: owner)
+    end
+
+    # Photographs arriving with no album to belong to are a shelf nobody can
+    # account for.
+    it "appears in their album list, not just its photographs in their gallery" do
+      get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(relative)
+
+      shared = json["folders"].find { |f| f["name"] == "Cornwall" }
+      expect(shared).to be_present
+      expect(shared["mine"]).to be(false)
+      expect(shared["shared_by"]).to eq(owner.full_name || owner.email)
+    end
+
+    it "says the album is theirs when it is" do
+      get "/api/v1/folders", params: { kind: "photo" }, headers: auth_headers_for(owner)
+
+      expect(json["folders"].find { |f| f["name"] == "Cornwall" }["mine"]).to be(true)
+    end
+
+    it "opens the photographs inside it too" do
+      get "/api/v1/files", params: { file_type: "image", folder_id: album.id },
+          headers: auth_headers_for(relative)
+
+      expect(json["files"].map { |f| f["id"] }).to eq([ photo.id ])
+    end
+  end
+end
+
+# Three shelves, kept apart: what is yours, an album somebody shared with you,
+# and the odd photograph shared on its own.
+RSpec.describe "Api::V1 photos shared with me" do
+  let(:family) { create(:family) }
+  let(:owner) { family.owner }
+  let(:me) { create(:user) }
+  let!(:membership) { create(:family_member, family: family, user: me, role: "editor") }
+
+  def photo(**attrs)
+    create(:stored_file, { user: owner, family: family, file_type: "image",
+                           mime_type: "image/jpeg" }.merge(attrs))
+  end
+
+  it "gathers a photograph shared on its own" do
+    lone = photo(visibility: "family", folder_id: nil, name: "Lone.jpg")
+
+    get "/api/v1/files", params: { file_type: "image", shared_with_me: "true" },
+        headers: auth_headers_for(me)
+
+    expect(json["files"].map { |f| f["id"] }).to eq([ lone.id ])
+  end
+
+  # It already appears under that album, with the name of whoever shared it on
+  # the chip. Listing it here as well is the same photograph twice.
+  it "leaves out what is in an album I can already see" do
+    album = create(:folder, user: owner, kind: "photo", name: "Cornwall")
+    photo(visibility: "family", folder_id: album.id, name: "Beach.jpg")
+    AccessGrant.create!(resource: album, subject: family, role: "viewer", granted_by: owner)
+
+    get "/api/v1/files", params: { file_type: "image", shared_with_me: "true" },
+        headers: auth_headers_for(me)
+
+    expect(json["files"]).to be_empty
+  end
+
+  it "never mixes any of it into my own album" do
+    photo(visibility: "family", folder_id: nil)
+    mine = Folder.default_for(me, kind: "photo")
+
+    get "/api/v1/files", params: { file_type: "image", folder_id: mine.id },
+        headers: auth_headers_for(me)
+
+    expect(json["files"]).to be_empty
+  end
+
+  it "does not count my own photographs as shared with me" do
+    create(:stored_file, user: me, family: family, file_type: "image",
+                         mime_type: "image/jpeg", visibility: "family", folder_id: nil)
+
+    get "/api/v1/files", params: { file_type: "image", shared_with_me: "true" },
+        headers: auth_headers_for(me)
+
+    expect(json["files"]).to be_empty
+  end
+end

@@ -16,7 +16,6 @@ import FilePreview from "@/components/files/FilePreview.vue";
 import FileDetails from "@/components/files/FileDetails.vue";
 import PhotoPlacePicker from "@/components/files/PhotoPlacePicker.vue";
 import AlbumPicker from "@/components/files/AlbumPicker.vue";
-import AlbumShareModal from "@/components/files/AlbumShareModal.vue";
 import ShareModal from "@/components/files/ShareModal.vue";
 import ContextMenu from "@/components/ui/ContextMenu.vue";
 import BulkActionBar from "@/components/ui/BulkActionBar.vue";
@@ -60,7 +59,22 @@ const sharingAlbum = ref(null);
 const runningAction = ref("");
 
 const currentAlbum = computed(() => albums.value.find((a) => a.id === albumId.value) ?? null);
+const albumTitle = computed(() => {
+  if (showingShared.value) return "Shared with me";
+
+  return currentAlbum.value ? currentAlbum.value.name : "Photo Gallery";
+});
 const defaultAlbum = computed(() => albums.value.find((a) => a.is_default) ?? null);
+
+/**
+ * The one album that is not a folder.
+ *
+ * A photograph somebody shared on its own has no album of theirs you can see,
+ * so it would have nowhere to appear. It gathers here instead — and never in
+ * your own albums, which hold what is yours.
+ */
+const SHARED = "shared-with-me";
+const sharedCount = ref(0);
 
 async function loadAlbums() {
   try {
@@ -72,12 +86,24 @@ async function loadAlbums() {
   } catch {
     // Without albums the gallery is what it always was: one grid.
   }
+
+  try {
+    // Only the count: enough to decide whether the shelf is worth showing.
+    const { headers } = await api.get("/files", {
+      params: { file_type: "image", shared_with_me: "true", per_page: 1 },
+    });
+    sharedCount.value = Number(headers["x-total-count"] ?? 0);
+  } catch {
+    sharedCount.value = 0;
+  }
 }
 
 async function openAlbum(id) {
   albumId.value = id;
   await load();
 }
+
+const showingShared = computed(() => albumId.value === SHARED);
 
 async function newAlbum() {
   const name = await dialog.prompt({
@@ -293,8 +319,13 @@ const unfilteredTotal = ref(0);
 
 async function load() {
   const { label_ids: labelIds, ...rest } = filters.value;
-  // An album is a folder, and the grid shows one at a time.
-  if (albumId.value != null) rest.folder_id = albumId.value;
+  // An album is a folder, and the grid shows one at a time — except the one
+  // that is not a folder at all.
+  if (albumId.value === SHARED) {
+    rest.shared_with_me = "true";
+  } else if (albumId.value != null) {
+    rest.folder_id = albumId.value;
+  }
   await filesStore.fetchFiles({ fileType: "image", labelIds, filters: rest });
 
   if (!hasFilters.value) unfilteredTotal.value = filesStore.totalCount;
@@ -532,6 +563,16 @@ async function deleteAlbum(album) {
 }
 
 function albumMenu(event, album) {
+  if (album.mine === false) {
+    contextMenu.open(event, {
+      title: `${album.name} — shared by ${album.shared_by}`,
+      items: [
+        { label: "Only they can change this album", icon: "fa-circle-info", disabled: true },
+      ],
+    });
+    return;
+  }
+
   contextMenu.open(event, {
     title: album.name,
     items: [
@@ -710,7 +751,7 @@ function photoMenu(event, file) {
     <header class="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div>
         <h1 class="text-h2 font-bold text-gray-800">
-          {{ currentAlbum ? currentAlbum.name : "Photo Gallery" }}
+          {{ albumTitle }}
         </h1>
         <p class="mt-1 text-body-sm text-gray-500">
           <template v-if="hasFilters">
@@ -722,6 +763,10 @@ function photoMenu(event, file) {
           </template>
           <span v-if="filesStore.items.length < filesStore.totalCount" class="text-gray-400">
             · showing {{ filesStore.items.length }}, scroll for more
+          </span>
+          <!-- Whose album this is, when it is not yours. -->
+          <span v-if="currentAlbum && currentAlbum.mine === false" class="text-gray-400">
+            · shared with you by {{ currentAlbum.shared_by }}
           </span>
         </p>
       </div>
@@ -787,13 +832,48 @@ function photoMenu(event, file) {
             ? 'border-primary-600 bg-primary-50 text-primary-700'
             : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
         ]"
-        :title="`${album.name} — right-click to share${album.is_default ? '' : ', rename or remove'}`"
+        :title="
+          album.mine === false
+            ? `${album.name} — shared with you by ${album.shared_by}`
+            : `${album.name} — right-click to share${album.is_default ? '' : ', rename or remove'}`
+        "
         @click="openAlbum(album.id)"
         @contextmenu.prevent="albumMenu($event, album)"
       >
-        <i :class="['fas', album.is_default ? 'fa-images' : 'fa-folder']" aria-hidden="true"></i>
+        <i
+          :class="[
+            'fas',
+            album.mine === false ? 'fa-users' : album.is_default ? 'fa-images' : 'fa-folder',
+          ]"
+          aria-hidden="true"
+        ></i>
         {{ album.name }}
+        <!-- A shared album arriving with no label is a shelf of photographs
+             nobody can account for. -->
+        <span v-if="album.mine === false" class="text-caption font-normal opacity-70">
+          from {{ album.shared_by }}
+        </span>
         <span class="tabular-nums opacity-60">{{ album.file_count }}</span>
+      </button>
+
+      <!-- Photographs somebody shared one at a time, which belong to no album
+           of theirs that you can see. Never mixed into your own. -->
+      <button
+        v-if="sharedCount"
+        type="button"
+        :aria-pressed="showingShared"
+        :class="[
+          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
+          showingShared
+            ? 'border-primary-600 bg-primary-50 text-primary-700'
+            : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+        ]"
+        title="Photos other people shared with you on their own"
+        @click="openAlbum(SHARED)"
+      >
+        <i class="fas fa-share-nodes" aria-hidden="true"></i>
+        Shared with me
+        <span class="tabular-nums opacity-60">{{ sharedCount }}</span>
       </button>
 
       <button
@@ -998,13 +1078,14 @@ function photoMenu(event, file) {
       @close="previewFile = null"
     />
 
-    <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
+    <ShareModal v-if="sharingFile" kind="file" :subject="sharingFile" @close="sharingFile = null" />
 
     <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
 
-    <AlbumShareModal
+    <ShareModal
       v-if="sharingAlbum"
-      :album="sharingAlbum"
+      kind="album"
+      :subject="sharingAlbum"
       @changed="loadAlbums"
       @close="sharingAlbum = null"
     />

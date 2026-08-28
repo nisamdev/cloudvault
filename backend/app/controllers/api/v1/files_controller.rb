@@ -47,6 +47,13 @@ module Api
           end
 
           scope = from_others.where.not(user_id: current_user.id)
+
+          # Anything sitting in an album the caller can see already appears
+          # under that album, with the name of whoever shared it on the chip.
+          # Listing it here as well would be the same photograph twice.
+          in_view = visible_folder_ids
+          scope = scope.where("stored_files.folder_id IS NULL OR stored_files.folder_id NOT IN (?)",
+                              in_view) if in_view.any?
         end
 
         scope = scope.with_labels(params[:label_ids]) if params[:label_ids].present?
@@ -984,6 +991,21 @@ module Api
       #
       # This mirrors PermissionChecker, which stays the authority for a single
       # file; the two must not drift, so any rule added there belongs here too.
+      # Folders the caller can already see for themselves — their own, their
+      # family's, and any granted to them.
+      def visible_folder_ids
+        @visible_folder_ids ||= begin
+          family_id = current_membership&.family_id
+          mine = Folder.where(user_id: current_user.id)
+          mine = mine.or(Folder.where(family_id: family_id)) if family_id
+
+          granted = GrantedResources.new(current_user)
+          ids = mine.pluck(:id)
+          ids |= granted.folder_ids unless granted.empty?
+          ids
+        end
+      end
+
       def visible_files
         mine = StoredFile.where(user_id: current_user.id)
 

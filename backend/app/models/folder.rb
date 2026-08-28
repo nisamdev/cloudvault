@@ -26,11 +26,16 @@ class Folder < ApplicationRecord
   # Where loose photographs live until somebody files them somewhere better.
   # Made when it is first needed rather than at sign-up, so an account that
   # never opens the gallery never grows one.
+  # Deliberately personal, whatever family the person is in. Given a family it
+  # would be scoped to one, and folder names are unique within a family — so
+  # the second person in a household to open the gallery could not have an
+  # album called "All photos", and got a validation error instead of a
+  # gallery. Sharing an album is a grant, not a shelf everybody stands on.
   def self.default_for(user, kind: "photo", family: nil)
     existing = active.of_kind(kind).find_by(user_id: user.id, is_default: true)
     return existing if existing
 
-    folder = create!(user: user, family: family, kind: kind, is_default: true,
+    folder = create!(user: user, family: nil, kind: kind, is_default: true,
                      name: kind == "photo" ? "All photos" : "All files")
     adopt_loose_photos(user, folder) if kind == "photo"
     folder

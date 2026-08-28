@@ -1201,7 +1201,7 @@ async function bulkTrash(files, folders) {
         @close="previewFile = null"
       />
 
-      <ShareModal v-if="sharingFile" :file="sharingFile" @close="sharingFile = null" />
+      <ShareModal v-if="sharingFile" kind="file" :subject="sharingFile" @close="sharingFile = null" />
 
       <FileDetails v-if="detailsFile" :file="detailsFile" @close="detailsFile = null" />
 

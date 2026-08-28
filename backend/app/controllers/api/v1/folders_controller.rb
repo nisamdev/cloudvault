@@ -313,11 +313,16 @@ module Api
       def visible_folders
         family_id = current_membership&.family_id
 
-        if family_id
-          Folder.where(user_id: current_user.id).or(Folder.where(family_id: family_id))
-        else
-          Folder.where(user_id: current_user.id)
-        end
+        mine = Folder.where(user_id: current_user.id)
+        mine = mine.or(Folder.where(family_id: family_id)) if family_id
+
+        # An album shared by name or with the family reaches its photographs
+        # through a grant. Without the album itself, those photographs turn up
+        # in somebody's gallery with nothing to say where they came from.
+        granted = GrantedResources.new(current_user)
+        return mine if granted.empty?
+
+        mine.or(Folder.where(id: granted.folder_ids))
       end
 
       def authorize_parent!(parent)
@@ -367,6 +372,10 @@ module Api
           locked: folder.locked?,
           kind: folder.kind,
           is_default: folder.is_default,
+          # Whose it is, so a shared album can say so rather than appearing as
+          # a mysterious extra shelf.
+          mine: folder.user_id == current_user.id,
+          shared_by: folder.user_id == current_user.id ? nil : folder.user.full_name || folder.user.email,
           file_count: StoredFile.where(folder_id: folder.id, trashed_at: nil).count,
           created_at: folder.created_at
         }
