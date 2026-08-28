@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_27_210000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_28_043500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -337,6 +337,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_27_210000) do
     t.boolean "two_factor_enabled", default: false, null: false
     t.string "two_factor_secret"
     t.datetime "updated_at", null: false
+    t.boolean "videos_enabled", default: false, null: false
     t.index ["current_family_id"], name: "index_users_on_current_family_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["oauth_provider", "oauth_id"], name: "index_users_on_oauth_provider_and_oauth_id", unique: true, where: "(oauth_provider IS NOT NULL)"

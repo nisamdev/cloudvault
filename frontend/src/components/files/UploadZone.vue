@@ -14,6 +14,7 @@ const props = defineProps({
 const emit = defineEmits(["uploaded", "complete"]);
 const filesStore = useFilesStore();
 const fileInput = ref(null);
+const folderInput = ref(null);
 const isDragging = ref(false);
 // dragenter/dragleave fire for every child element; counting keeps the
 // highlight from flickering as the pointer moves across the zone.
@@ -46,6 +47,19 @@ const batchLabel = computed(() => {
 
 function openPicker() {
   fileInput.value?.click();
+}
+
+function openFolderPicker() {
+  folderInput.value?.click();
+}
+
+// Junk the OS drops into every folder it touches — nobody dragging a folder in
+// means to upload these, and each one is just a wasted request + error card.
+const JUNK_NAMES = new Set(["Thumbs.db", "desktop.ini", ".DS_Store"]);
+
+function isAcceptableFile(file) {
+  const name = file.name || "";
+  return name && !name.startsWith(".") && !name.startsWith("~$") && !JUNK_NAMES.has(name);
 }
 
 async function uploadAll(fileList) {
@@ -86,12 +100,24 @@ async function uploadAll(fileList) {
       batch.value.currentLoaded = 0;
       // Per-file so the list can flash/insert as each one lands.
       emit("uploaded", result);
-    } catch {
+    } catch (e) {
       // The failure tracker (if any) carries the message; keep going.
       failed += 1;
       batch.value.failed += 1;
       batch.value.completedBytes += file.size || 0;
       batch.value.currentLoaded = 0;
+
+      // A 429 means every request from here is going to fail the same way —
+      // continuing would just fire one "too many attempts" card per remaining
+      // file (and dig the rate limit hole deeper). Stop, and count the rest as
+      // failed without hitting the API for each one.
+      if (e?.status === 429) {
+        const remaining = queue.slice(queue.indexOf(file) + 1);
+        failed += remaining.length;
+        batch.value.failed += remaining.length;
+        batch.value.completedBytes += remaining.reduce((sum, f) => sum + (f.size || 0), 0);
+        break;
+      }
     }
   }
 
@@ -109,6 +135,11 @@ async function uploadAll(fileList) {
 function onSelect(event) {
   uploadAll(event.target.files);
   // Reset so picking the same file twice still fires a change event.
+  event.target.value = "";
+}
+
+function onSelectFolder(event) {
+  uploadAll(Array.from(event.target.files).filter(isAcceptableFile));
   event.target.value = "";
 }
 
@@ -151,6 +182,14 @@ function onDragLeave() {
         >
           browse
         </button>
+        — or
+        <button
+          type="button"
+          class="font-semibold text-primary-600 underline hover:text-primary-700"
+          @click="openFolderPicker"
+        >
+          upload a folder
+        </button>
       </p>
       <p class="mt-1 text-caption text-gray-500">
         {{ visibility === "family" ? "Everyone in your family will see these" : "Only you will see these" }}
@@ -167,6 +206,19 @@ function onDragLeave() {
         class="sr-only"
         aria-label="Choose files to upload"
         @change="onSelect"
+      />
+      <!-- webkitdirectory has no bearing on `accept`; the folder can hold
+           anything, so unwanted types are filtered client-side and the rest
+           still get server-side validation same as any other upload. -->
+      <input
+        ref="folderInput"
+        type="file"
+        multiple
+        webkitdirectory
+        directory
+        class="sr-only"
+        aria-label="Choose a folder to upload"
+        @change="onSelectFolder"
       />
     </div>
 

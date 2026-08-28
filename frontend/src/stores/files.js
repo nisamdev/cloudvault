@@ -105,6 +105,10 @@ export const useFilesStore = defineStore("files", () => {
 
     try {
       const { data } = await api.post("/files", formData, {
+        // The instance default (30s) is fine for photos but kills a large video
+        // partway through. Progress events reset the axios idle timer isn't a
+        // thing, so this has to be one generous ceiling for the whole upload.
+        timeout: 20 * 60_000,
         onUploadProgress: (event) => {
           if (!event.total) return;
           const pct = Math.round((event.loaded * 100) / event.total);

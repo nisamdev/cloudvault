@@ -90,7 +90,11 @@ Rails.application.configure do
   #   cloudvault-api.up.railway.app,api.yourdomain.com
   allowed_hosts = ENV.fetch("ALLOWED_HOSTS", "").split(",").map(&:strip).reject(&:empty?)
   if allowed_hosts.any?
-    config.hosts = allowed_hosts + [ /.*\.railway\.internal/ ]
+    # Compose's web service proxies /api to this container with changeOrigin
+    # (vite.config.js), which rewrites the Host header to the proxy target —
+    # so Rails sees "api", never the visitor's real hostname, on every
+    # proxied request. Same idea as the Railway private-network exception.
+    config.hosts = allowed_hosts + [ /.*\.railway\.internal/, "api" ]
     # Health checks hit the container by internal address, not by domain.
     config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
   end

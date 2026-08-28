@@ -49,14 +49,23 @@ class FileUploader
 
   def validate!(upload, family_visible:)
     size = upload.size.to_i
+    content_type = resolve_content_type(upload)
+    is_video = content_type.to_s.start_with?(StoredFile::VIDEO_MIME_PREFIX)
 
-    raise FileTooLarge, "That file is larger than the #{max_upload_mb} MB limit." if size > max_upload_bytes
+    if is_video && !user.videos_enabled?
+      raise UnsupportedType, "Video uploads are turned off. Turn them on in Settings to upload videos."
+    end
+
+    size_limit = is_video ? max_video_upload_bytes : max_upload_bytes
+    if size > size_limit
+      raise FileTooLarge, "That file is larger than the #{size_limit / 1_048_576} MB limit."
+    end
 
     extension = File.extname(upload.original_filename.to_s).downcase
     # Checked against both what the client claims and what the bytes say, so a
     # renamed executable is caught either way.
     if BLOCKED_MIME_TYPES.include?(upload.content_type) ||
-       BLOCKED_MIME_TYPES.include?(resolve_content_type(upload)) ||
+       BLOCKED_MIME_TYPES.include?(content_type) ||
        BLOCKED_EXTENSIONS.include?(extension)
       raise UnsupportedType, "That file type isn't allowed."
     end
@@ -232,5 +241,11 @@ class FileUploader
 
   def max_upload_mb
     max_upload_bytes / 1_048_576
+  end
+
+  # Insta360 and other action-cam footage routinely runs into the gigabytes —
+  # a 100 MB ceiling makes video support pointless, so it gets its own knob.
+  def max_video_upload_bytes
+    ENV.fetch("MAX_VIDEO_UPLOAD_BYTES", 2.gigabytes).to_i
   end
 end

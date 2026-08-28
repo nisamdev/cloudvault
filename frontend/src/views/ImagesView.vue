@@ -235,12 +235,29 @@ function scheduleThumbRefresh() {
 
   thumbRefreshTimer = setTimeout(async () => {
     const batch = queue.slice(0, 40);
-    batch.forEach((photo) => {
+    const reprocessResults = await Promise.allSettled(
+      batch.map((photo) => api.post(`/files/${photo.id}/reprocess`)),
+    );
+
+    // A rate-limited attempt never got a real chance, so it shouldn't count
+    // against the photo's 3-try budget — only charge the ones that actually ran.
+    let rateLimited = false;
+    batch.forEach((photo, i) => {
+      if (reprocessResults[i].status === "rejected" && reprocessResults[i].reason?.status === 429) {
+        rateLimited = true;
+        return;
+      }
       thumbAttempts.value.set(photo.id, (thumbAttempts.value.get(photo.id) || 0) + 1);
     });
-    await Promise.allSettled(
-      batch.map((photo) => api.post(`/files/${photo.id}/reprocess`).catch(() => null)),
-    );
+
+    // Rate-limited: every other request in this round almost certainly is too.
+    // Back off hard instead of retrying every few seconds and digging the same
+    // hole deeper — a large batch upload is exactly when this loop runs widest.
+    if (rateLimited) {
+      thumbRefreshTimer = setTimeout(scheduleThumbRefresh, 30_000);
+      return;
+    }
+
     // Pull fresh thumbnail_url for each without resetting infinite scroll.
     setTimeout(async () => {
       await Promise.allSettled(
