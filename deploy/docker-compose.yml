@@ -168,6 +168,12 @@ services:
       PORT: "80"
       API_URL: ${APP_URL:-https://cloud.yegstack.com}
       APP_ENV: production
+      # The image keeps its template in /etc/nginx/templates/, which nginx's own
+      # 20-envsubst script also renders into conf.d/cloudvault.conf with a literal
+      # __PORT__ ("host not found in __PORT__", crash loop). Point that script at
+      # a missing dir so it skips; 40-cloudvault-runtime-config.sh writes the
+      # real default.conf. Root fix: move the template out of templates/.
+      NGINX_ENVSUBST_TEMPLATE_DIR: /nonexistent
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 15s
