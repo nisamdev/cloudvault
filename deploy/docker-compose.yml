@@ -1,0 +1,192 @@
+# CloudVault — production stack for Coolify on the home server.
+#
+# Coolify settings: base directory /deploy, compose file /docker-compose.yml,
+# domain on the `proxy` service only: http://cloud.yegstack.com:80
+#
+# One public entry point (`proxy`): /api/* and /up go to Rails, everything else
+# to the nginx-served SPA. Same origin, so no CORS and the refresh cookie stays
+# first-party. Postgres, Redis and MinIO are never exposed publicly; the two
+# 127.0.0.1 ports exist so data can be copied in over an SSH tunnel.
+#
+# No YAML anchors on purpose (Coolify's compose parser), hence the repeated env.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cloudvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudvault_production}
+    ports:
+      - "127.0.0.1:${CV_DB_PORT:-15532}:5432"
+    volumes:
+      - cv_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - cv_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO no longer publishes images; this is Bitnami's frozen copy (see the
+  # Roost repo for the same change). Private bucket: browsers never talk to it,
+  # the API streams files (app/services/storage_url.rb).
+  minio:
+    image: bitnamilegacy/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY}
+      MINIO_DEFAULT_BUCKETS: ${S3_BUCKET:-cloudvault}
+    ports:
+      - "127.0.0.1:${CV_MINIO_PORT:-19100}:9000"
+    volumes:
+      - cv_minio_data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  api:
+    build:
+      context: ../backend
+      target: production
+    restart: unless-stopped
+    environment:
+      RAILS_ENV: production
+      PORT: "3000"
+      RUN_MIGRATIONS: "true"
+      ENSURE_BUCKET: "true"
+      RUN_SIDEKIQ_IN_PROCESS: "false"
+      DATABASE_URL: postgres://${POSTGRES_USER:-cloudvault}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cloudvault_production}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-15}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-cloudvault}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "true"
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER_NAME: ${SMTP_USER_NAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@yegstack.com}
+      APP_URL: ${APP_URL:-https://cloud.yegstack.com}
+      API_URL: ${APP_URL:-https://cloud.yegstack.com}
+      CORS_ORIGINS: ${APP_URL:-https://cloud.yegstack.com}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-cloud.yegstack.com}
+      USER_STORAGE_QUOTA_BYTES: ${USER_STORAGE_QUOTA_BYTES:-107374182400}
+      FAMILY_STORAGE_QUOTA_BYTES: ${FAMILY_STORAGE_QUOTA_BYTES:-107374182400}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-104857600}
+      MAX_VIDEO_UPLOAD_BYTES: ${MAX_VIDEO_UPLOAD_BYTES:-2147483648}
+      FILE_VERSIONS_KEPT: ${FILE_VERSIONS_KEPT:-3}
+      TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      # Host "api" is in config.hosts; "localhost" would be refused.
+      test: ["CMD", "curl", "-fsS", "-H", "Host: api", "http://localhost:3000/up"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+  worker:
+    build:
+      context: ../backend
+      target: production
+    restart: unless-stopped
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    environment:
+      RAILS_ENV: production
+      RUN_MIGRATIONS: "false"
+      ENSURE_BUCKET: "false"
+      SIDEKIQ_CONCURRENCY: ${SIDEKIQ_CONCURRENCY:-3}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cloudvault}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cloudvault_production}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      JWT_SECRET: ${JWT_SECRET}
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-cloudvault}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: "true"
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER_NAME: ${SMTP_USER_NAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@yegstack.com}
+      APP_URL: ${APP_URL:-https://cloud.yegstack.com}
+      API_URL: ${APP_URL:-https://cloud.yegstack.com}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-cloud.yegstack.com}
+      FILE_VERSIONS_KEPT: ${FILE_VERSIONS_KEPT:-3}
+      TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../frontend
+      target: production
+    restart: unless-stopped
+    environment:
+      PORT: "80"
+      API_URL: ${APP_URL:-https://cloud.yegstack.com}
+      APP_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # The one service with a Coolify domain. Caddyfile baked in (Coolify turns
+  # bind-mounted repo files into empty directories).
+  proxy:
+    build:
+      context: ./proxy
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - api
+      - web
+
+volumes:
+  cv_postgres_data:
+  cv_redis_data:
+  cv_minio_data:
