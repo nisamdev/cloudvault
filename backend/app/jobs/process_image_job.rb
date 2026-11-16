@@ -7,7 +7,10 @@
 class ProcessImageJob < ApplicationJob
   queue_as :thumbnails
 
-  THUMBNAIL_SIZE = [ 300, 300 ].freeze
+  # 300px looked fine in a dense desktop grid but is visibly soft blown up to
+  # fill a single mobile column at 2-3x device pixel ratio; 800px covers that
+  # without ballooning storage the way a full-resolution image would.
+  THUMBNAIL_SIZE = [ 800, 800 ].freeze
 
   def perform(stored_file_id, force: false)
     stored_file = StoredFile.find_by(id: stored_file_id)

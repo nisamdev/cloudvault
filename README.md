@@ -72,10 +72,27 @@ docker compose down -v               # stop and wipe all data
 
 ### Tests
 
+API specs are RSpec, run inside the API container:
+
 ```bash
 docker compose exec -e RAILS_ENV=test \
   -e TEST_DATABASE_URL="postgres://cloudvault:cloudvault_dev_password@postgres:5432/cloudvault_test" \
   api bundle exec rspec
+```
+
+Browser specs are Playwright, run as a Compose service against the `web`
+container (seeded owner `dad@smith.com` / `password123`). The service is behind
+the `e2e` profile, so a normal `up` does not start it. Login is rate limited,
+and the suite runs as a single worker for that reason.
+
+```bash
+docker compose --profile e2e run --rm e2e
+```
+
+Pass a file or a grep when you only want part of the suite:
+
+```bash
+docker compose --profile e2e run --rm e2e tests/auth.spec.js
 ```
 
 ### Adding a gem
@@ -92,6 +109,7 @@ docker compose build api && docker compose up -d api worker
 ```
 backend/     Rails 8 API (api_only). Dockerfile has development + production targets.
 frontend/    Vue 3 + Vite + Tailwind v4 SPA.
+e2e/         Playwright browser tests. Run via Compose, not on the host.
 docs/        Design system, component specs, a11y guidelines, UI prototype.
 infra/       Deployment notes (Railway).
 ```

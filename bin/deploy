@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+log() { echo "[deploy] $*"; }
+
+before_head="$(git rev-parse HEAD)"
+log "pulling latest..."
+git pull --ff-only
+after_head="$(git rev-parse HEAD)"
+
+changed() { git diff --name-only "$before_head" "$after_head" -- "$1" | grep -q .; }
+
+# bundle_cache and node_modules are named/anonymous Docker volumes that shadow
+# whatever gems/packages are baked into the images, so a new dependency in
+# Gemfile.lock or package-lock.json needs an explicit install — pulling the
+# lockfile alone does not put the gem/package on disk inside the container.
+if changed backend/Gemfile.lock; then
+  log "Gemfile.lock changed — bundle install..."
+  docker compose exec -T api bundle install
+fi
+
+if changed frontend/package-lock.json; then
+  log "package-lock.json changed — npm install..."
+  docker compose exec -T web npm install
+fi
+
+# api/worker run with RAILS_ENV=production, which does not hot-reload code
+# (config.enable_reloading = false) — unlike the frontend's Vite dev server,
+# which picks up new files live. Without this restart the API keeps serving
+# whatever was loaded in memory before the pull, which is how "web looks
+# updated, api is stale" breakage happens. The entrypoint runs RUN_MIGRATIONS
+# on every boot, so this also applies any new migrations.
+log "restarting api + worker (loads new code, runs pending migrations)..."
+docker compose up -d --force-recreate api worker
+
+log "waiting for the API to come back healthy..."
+for _ in $(seq 1 30); do
+  if curl -fsS "http://localhost:${WEB_PORT:-5273}/api/v1/health" >/tmp/deploy_health.$$ 2>/dev/null; then
+    cat /tmp/deploy_health.$$; echo
+    rm -f /tmp/deploy_health.$$
+    log "done."
+    exit 0
+  fi
+  sleep 1
+done
+
+rm -f /tmp/deploy_health.$$
+log "ERROR: API did not report healthy within 30s — check: docker compose logs api"
+exit 1

@@ -52,6 +52,16 @@ const bulkBusy = ref(false);
 
 const search = ref("");
 const visibility = ref("private");
+
+// Remembered per device: a long list of documents reads better compact, but
+// photos and scans people actually want to glance at as tiles.
+const VIEW_KEY = "cloudvault.files.viewMode";
+const viewMode = ref(localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list");
+function setViewMode(mode) {
+  if (mode !== "list" && mode !== "grid") return;
+  viewMode.value = mode;
+  localStorage.setItem(VIEW_KEY, mode);
+}
 const sharingFile = ref(null);
 const previewFile = ref(null);
 const detailsFile = ref(null);
@@ -941,6 +951,39 @@ async function bulkTrash(files, folders) {
         </div>
 
         <div class="flex items-center gap-3">
+          <div
+            class="flex items-center rounded-base border border-gray-300 p-0.5"
+            role="group"
+            aria-label="View"
+          >
+            <button
+              type="button"
+              :aria-pressed="viewMode === 'list'"
+              :class="[
+                'rounded px-2.5 py-1.5 text-body-sm transition',
+                viewMode === 'list' ? 'bg-primary-600 text-white' : 'text-gray-600 hover:bg-gray-50',
+              ]"
+              aria-label="List view"
+              title="List view"
+              @click="setViewMode('list')"
+            >
+              <i class="fas fa-list" aria-hidden="true"></i>
+            </button>
+            <button
+              type="button"
+              :aria-pressed="viewMode === 'grid'"
+              :class="[
+                'rounded px-2.5 py-1.5 text-body-sm transition',
+                viewMode === 'grid' ? 'bg-primary-600 text-white' : 'text-gray-600 hover:bg-gray-50',
+              ]"
+              aria-label="Grid view"
+              title="Grid view"
+              @click="setViewMode('grid')"
+            >
+              <i class="fas fa-grip" aria-hidden="true"></i>
+            </button>
+          </div>
+
           <label for="file-search" class="sr-only">Search files</label>
           <div class="relative">
             <i
@@ -1032,16 +1075,23 @@ async function bulkTrash(files, folders) {
         </p>
       </div>
 
-      <ul v-else class="space-y-2">
+      <ul
+        v-else
+        :class="viewMode === 'grid'
+          ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+          : 'space-y-1.5'"
+      >
         <!-- Folders sit above files, like Drive; drag a row onto one to move it. -->
         <FolderRow
           v-for="folder in visibleFolders"
           :key="`folder-${folder.id}`"
           :folder="folder"
+          :view="viewMode"
           :editing="renamingFolderId === folder.id"
           :selected="isSelected('folder', folder.id)"
           :selecting="hasSelection"
           @contextmenu="folderMenu($event, folder)"
+          @menu="folderMenu($event, folder)"
           @update:editing="renamingFolderId = $event ? folder.id : null"
           @open="openFolder"
           @drop="handleDrop"
@@ -1051,13 +1101,111 @@ async function bulkTrash(files, folders) {
           @select="selectFolder($event, folder)"
         />
 
+        <!-- One <template> per file, holding both layouts, so v-if/v-for
+             (which cannot share an element in Vue 3) each apply cleanly. -->
+        <template v-for="file in filesStore.items" :key="file.id">
+        <!-- Compact row: one thin line, everything but name/size/date behind
+             the menu button so a long list stays scannable. -->
         <li
-          v-for="file in filesStore.items"
-          :key="file.id"
+          v-if="viewMode === 'list'"
           :data-file-id="file.id"
           :draggable="renamingFileId !== file.id"
           :class="[
-            'group flex items-center gap-3 rounded-lg border bg-white p-4 transition',
+            'group flex items-center gap-2 rounded-lg border bg-white px-3 py-2 transition',
+            isSelected('file', file.id)
+              ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200'
+              : highlighted.has(file.id)
+                ? 'border-primary-500 ring-2 ring-primary-200'
+                : 'border-gray-200',
+            dragging?.type === 'file' && dragging.id === file.id ? 'opacity-40' : 'hover:shadow-sm',
+          ]"
+          @dragstart="startDrag($event, 'file', file)"
+          @dragend="endDrag"
+          @contextmenu="fileMenu($event, file)"
+        >
+          <button
+            type="button"
+            data-select-toggle
+            :class="[
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition',
+              isSelected('file', file.id)
+                ? 'border-primary-600 bg-primary-600 text-white'
+                : 'border-gray-300 text-transparent hover:border-primary-400',
+              hasSelection || isSelected('file', file.id)
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            ]"
+            :aria-label="isSelected('file', file.id) ? `Deselect ${file.name}` : `Select ${file.name}`"
+            :aria-pressed="isSelected('file', file.id)"
+            @click="selectFile($event, file)"
+          >
+            <i class="fas fa-check text-[9px]" aria-hidden="true"></i>
+          </button>
+
+          <!-- Presigned thumbnail URLs expire; if one has, fall back to the
+               icon rather than leaving a broken image in the row. -->
+          <img
+            v-if="file.image?.thumbnail_url && !brokenThumbnails.has(file.id)"
+            :src="file.image.thumbnail_url"
+            :alt="file.name"
+            class="h-6 w-6 shrink-0 rounded object-cover"
+            loading="lazy"
+            @error="brokenThumbnails.add(file.id)"
+          />
+          <i
+            v-else
+            :class="['fas', fileIcon(file).icon, fileIcon(file).className, 'w-6 shrink-0 text-center']"
+            aria-hidden="true"
+          ></i>
+
+          <div class="min-w-0 flex-1">
+            <InlineName
+              :name="file.name"
+              :editing="renamingFileId === file.id"
+              :input-id="`rename-file-${file.id}`"
+              label="File name"
+              keep-extension
+              text-class="text-body-sm font-medium text-gray-800"
+              @update:editing="renamingFileId = $event ? file.id : null"
+              @rename="renameFile(file, $event)"
+              @open="previewFile = file"
+            />
+          </div>
+
+          <!-- Where a file lives matters most when results span folders. -->
+          <span v-if="file.folder" class="hidden shrink-0 text-caption text-gray-400 md:block">
+            {{ file.folder.name }}
+          </span>
+
+          <span class="hidden shrink-0 text-caption text-gray-400 sm:block">
+            {{ formatFileSize(file.size) }} · {{ formatRelativeDate(file.created_at) }}
+          </span>
+
+          <i
+            v-if="file.visibility === 'family'"
+            class="fas fa-users shrink-0 text-caption text-primary-600"
+            title="Shared with family"
+            aria-label="Shared with family"
+          ></i>
+
+          <button
+            type="button"
+            class="shrink-0 rounded-md p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            :aria-label="`More actions for ${file.name}`"
+            @click.stop="fileMenu($event, file)"
+          >
+            <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+          </button>
+        </li>
+
+        <!-- Tile: thumbnail-first, name and size below, actions behind the
+             menu button so the card stays uncluttered. -->
+        <li
+          v-else
+          :data-file-id="file.id"
+          :draggable="renamingFileId !== file.id"
+          :class="[
+            'group relative flex flex-col gap-2 rounded-lg border bg-white p-2 transition',
             isSelected('file', file.id)
               ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200'
               : highlighted.has(file.id)
@@ -1073,10 +1221,10 @@ async function bulkTrash(files, folders) {
             type="button"
             data-select-toggle
             :class="[
-              'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
+              'absolute left-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded border transition',
               isSelected('file', file.id)
                 ? 'border-primary-600 bg-primary-600 text-white'
-                : 'border-gray-300 text-transparent hover:border-primary-400',
+                : 'border-white/80 bg-black/10 text-transparent hover:border-primary-400',
               hasSelection || isSelected('file', file.id)
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
@@ -1088,115 +1236,59 @@ async function bulkTrash(files, folders) {
             <i class="fas fa-check text-[10px]" aria-hidden="true"></i>
           </button>
 
-          <!-- Presigned thumbnail URLs expire; if one has, fall back to the
-               icon rather than leaving a broken image in the row. -->
-          <img
-            v-if="file.image?.thumbnail_url && !brokenThumbnails.has(file.id)"
-            :src="file.image.thumbnail_url"
-            :alt="file.name"
-            class="h-10 w-10 shrink-0 rounded object-cover"
-            loading="lazy"
-            @error="brokenThumbnails.add(file.id)"
-          />
-          <i
-            v-else
-            :class="['fas', fileIcon(file).icon, fileIcon(file).className, 'text-xl']"
-            aria-hidden="true"
-          ></i>
+          <button
+            type="button"
+            class="absolute right-1 top-1 z-10 rounded-md p-1.5 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100 focus-visible:opacity-100"
+            :aria-label="`More actions for ${file.name}`"
+            @click.stop="fileMenu($event, file)"
+          >
+            <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+          </button>
 
-          <div class="min-w-0 flex-1">
+          <button
+            type="button"
+            class="flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-gray-50"
+            :aria-label="`Open ${file.name}`"
+            @click="previewFile = file"
+          >
+            <img
+              v-if="file.image?.thumbnail_url && !brokenThumbnails.has(file.id)"
+              :src="file.image.thumbnail_url"
+              :alt="file.name"
+              class="h-full w-full object-cover"
+              loading="lazy"
+              @error="brokenThumbnails.add(file.id)"
+            />
+            <i
+              v-else
+              :class="['fas', fileIcon(file).icon, fileIcon(file).className, 'text-3xl']"
+              aria-hidden="true"
+            ></i>
+          </button>
+
+          <div class="min-w-0">
             <InlineName
               :name="file.name"
               :editing="renamingFileId === file.id"
-              :input-id="`rename-file-${file.id}`"
+              :input-id="`rename-file-grid-${file.id}`"
               label="File name"
               keep-extension
+              text-class="text-body-sm font-medium text-gray-800"
               @update:editing="renamingFileId = $event ? file.id : null"
               @rename="renameFile(file, $event)"
               @open="previewFile = file"
             />
-            <p class="text-caption text-gray-500">
-              {{ formatFileSize(file.size) }} · {{ formatRelativeDate(file.created_at) }}
-              <span v-if="file.version_number > 1"> · v{{ file.version_number }}</span>
-              <!-- Where a file lives matters most when results span folders -->
-              <span v-if="file.folder"> · {{ file.folder.name }}</span>
-              · {{ file.owner.name }}
+            <p class="truncate text-caption text-gray-400">
+              {{ formatFileSize(file.size) }}
+              <i
+                v-if="file.visibility === 'family'"
+                class="fas fa-users ml-1 text-primary-600"
+                title="Shared with family"
+              ></i>
             </p>
-
-            <ul v-if="file.labels?.length" class="mt-1 flex flex-wrap gap-1">
-              <li
-                v-for="label in file.labels"
-                :key="label.id"
-                class="rounded-full px-2 py-0.5 text-caption"
-                :style="{ backgroundColor: `${label.color}1A`, color: label.color }"
-              >
-                {{ label.name }}
-              </li>
-            </ul>
-          </div>
-
-          <span
-            v-if="file.visibility === 'family'"
-            class="rounded-full bg-primary-50 px-2 py-1 text-label font-medium text-primary-700"
-          >
-            <i class="fas fa-users mr-1" aria-hidden="true"></i>Family
-          </span>
-
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-              :aria-label="`Preview ${file.name}`"
-              @click="previewFile = file"
-            >
-              <i class="fas fa-eye" aria-hidden="true"></i>
-            </button>
-            <button
-              v-if="file.permissions.can_edit"
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-              :aria-label="`Rename ${file.name}`"
-              @click="beginRenameFile(file)"
-            >
-              <i class="fas fa-pen" aria-hidden="true"></i>
-            </button>
-            <button
-              v-if="file.permissions.can_edit"
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-              :aria-label="`Edit labels for ${file.name}`"
-              @click="labellingFile = file"
-            >
-              <i class="fas fa-tag" aria-hidden="true"></i>
-            </button>
-            <button
-              v-if="file.permissions.can_share"
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-primary-50 hover:text-primary-600"
-              :aria-label="`Share ${file.name}`"
-              @click="sharingFile = file"
-            >
-              <i class="fas fa-share-nodes" aria-hidden="true"></i>
-            </button>
-            <button
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-              :aria-label="`Download ${file.name}`"
-              @click="onDownload(file)"
-            >
-              <i class="fas fa-download" aria-hidden="true"></i>
-            </button>
-            <button
-              v-if="file.permissions.can_delete"
-              type="button"
-              class="rounded-md p-2 text-gray-500 transition hover:bg-error-50 hover:text-error-600"
-              :aria-label="`Move ${file.name} to trash`"
-              @click="onTrash(file)"
-            >
-              <i class="fas fa-trash" aria-hidden="true"></i>
-            </button>
           </div>
         </li>
+        </template>
       </ul>
       </div>
 

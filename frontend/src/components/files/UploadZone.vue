@@ -162,9 +162,25 @@ function onDragLeave() {
 
 <template>
   <div>
+    <!-- Mobile: a phone has no folders to drag and drop, so this is just a
+         button — the full dropzone below is a desktop-sized target for a
+         gesture nobody has on a touchscreen. -->
+    <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3 sm:hidden">
+      <p class="min-w-0 truncate text-caption text-gray-500">
+        {{ visibility === "family" ? "Everyone in your family will see these" : "Only you will see these" }}
+      </p>
+      <button
+        type="button"
+        class="shrink-0 rounded-base gradient-main px-4 py-2 text-body-sm font-semibold text-white"
+        @click="openPicker"
+      >
+        <i class="fas fa-cloud-arrow-up mr-2" aria-hidden="true"></i>Upload
+      </button>
+    </div>
+
     <div
       :class="[
-        'rounded-lg border-2 border-dashed p-8 text-center transition-colors',
+        'hidden rounded-lg border-2 border-dashed p-8 text-center transition-colors sm:block',
         isDragging ? 'border-primary-600 bg-primary-50' : 'border-gray-300 bg-white',
       ]"
       @dragenter.prevent="onDragEnter"
@@ -197,30 +213,31 @@ function onDragLeave() {
       <p v-if="props.accept === 'image/*'" class="mt-1 text-caption text-gray-400">
         Images only
       </p>
-
-      <input
-        ref="fileInput"
-        type="file"
-        multiple
-        :accept="props.accept || undefined"
-        class="sr-only"
-        aria-label="Choose files to upload"
-        @change="onSelect"
-      />
-      <!-- webkitdirectory has no bearing on `accept`; the folder can hold
-           anything, so unwanted types are filtered client-side and the rest
-           still get server-side validation same as any other upload. -->
-      <input
-        ref="folderInput"
-        type="file"
-        multiple
-        webkitdirectory
-        directory
-        class="sr-only"
-        aria-label="Choose a folder to upload"
-        @change="onSelectFolder"
-      />
     </div>
+
+    <input
+      ref="fileInput"
+      type="file"
+      multiple
+      :accept="props.accept || undefined"
+      class="sr-only"
+      aria-label="Choose files to upload"
+      @change="onSelect"
+    />
+    <!-- webkitdirectory has no bearing on `accept`; the folder can hold
+         anything, so unwanted types are filtered client-side and the rest
+         still get server-side validation same as any other upload. Desktop
+         only — see openFolderPicker, unreachable from the mobile button. -->
+    <input
+      ref="folderInput"
+      type="file"
+      multiple
+      webkitdirectory
+      directory
+      class="sr-only"
+      aria-label="Choose a folder to upload"
+      @change="onSelectFolder"
+    />
 
     <!-- Single overall bar for the batch (and for one file). -->
     <div

@@ -66,6 +66,12 @@ const albumTitle = computed(() => {
 });
 const defaultAlbum = computed(() => albums.value.find((a) => a.is_default) ?? null);
 
+// Where a fresh upload lands. "Shared with me" is not a folder of yours to
+// file into, so it falls back to the default album instead of going to root.
+const uploadFolderId = computed(() =>
+  showingShared.value ? (defaultAlbum.value?.id ?? null) : albumId.value,
+);
+
 /**
  * The one album that is not a folder.
  *
@@ -174,9 +180,12 @@ function onMarqueeDown(event) {
 const visibility = ref("private");
 
 const TILE_KEY = "cloudvault.gallery.tileSize";
+// One column below `sm`, whatever the chosen size — a phone screen is not
+// wide enough for a grid to mean anything, and a single big photo is easier
+// to tap than three small ones.
 const TILE_SIZES = {
-  sm: { label: "S", grid: "grid-cols-3 md:grid-cols-5 lg:grid-cols-8", gap: "gap-1.5" },
-  md: { label: "M", grid: "grid-cols-2 md:grid-cols-4 lg:grid-cols-6", gap: "gap-3" },
+  sm: { label: "S", grid: "grid-cols-1 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-8", gap: "gap-1.5" },
+  md: { label: "M", grid: "grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-6", gap: "gap-3" },
   lg: { label: "L", grid: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4", gap: "gap-4" },
 };
 
@@ -804,8 +813,10 @@ function photoMenu(event, file) {
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
+        <!-- One column is already the mobile layout, so picking a size there
+             does nothing worth the space it takes on a small screen. -->
         <div
-          class="flex items-center rounded-base border border-gray-300 p-0.5"
+          class="hidden items-center rounded-base border border-gray-300 p-0.5 sm:flex"
           role="group"
           aria-label="Thumbnail size"
         >
@@ -844,6 +855,7 @@ function photoMenu(event, file) {
     -->
     <UploadZone
       :visibility="visibility"
+      :folder-id="uploadFolderId"
       accept="image/*,.heic,.heif,.avif,.jxl"
       class="mb-6"
       @complete="onUploadComplete"
@@ -851,15 +863,20 @@ function photoMenu(event, file) {
 
     <!-- Albums. One grid holding everything stops being a gallery somewhere
          around the second year, so the default album is what opens and the
-         rest are a click away. -->
-    <div v-if="albums.length" class="mb-5 flex flex-wrap items-center gap-2">
+         rest are a click away. A single scrolling row on mobile keeps this
+         from stacking into several rows and pushing photos off the first
+         screen; it wraps normally once there is room. -->
+    <div
+      v-if="albums.length"
+      class="mb-5 flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0"
+    >
       <button
         v-for="album in albums"
         :key="album.id"
         type="button"
         :aria-pressed="album.id === albumId"
         :class="[
-          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
+          'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
           album.id === albumId
             ? 'border-primary-600 bg-primary-50 text-primary-700'
             : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
@@ -895,7 +912,7 @@ function photoMenu(event, file) {
         type="button"
         :aria-pressed="showingShared"
         :class="[
-          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
+          'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-body-sm font-medium transition',
           showingShared
             ? 'border-primary-600 bg-primary-50 text-primary-700'
             : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
@@ -910,14 +927,22 @@ function photoMenu(event, file) {
 
       <button
         type="button"
-        class="rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-body-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700"
+        class="shrink-0 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-body-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700"
         @click="newAlbum"
       >
         <i class="fas fa-plus mr-1.5" aria-hidden="true"></i>New album
       </button>
     </div>
 
-    <FilterBar v-model="filters" photo-filters capture-sort @change="load" />
+    <!-- Filters are a small-screen luxury the gallery can live without; the
+         default capture-date sort still applies underneath. -->
+    <FilterBar
+      v-model="filters"
+      photo-filters
+      capture-sort
+      class="hidden sm:block"
+      @change="load"
+    />
 
     <p
       v-if="filesStore.error"
@@ -927,9 +952,10 @@ function photoMenu(event, file) {
       {{ filesStore.error }}
     </p>
 
-    <!-- First load -->
+    <!-- First load. A single column on mobile makes 12 placeholders a very
+         tall wall of nothing, so this shows fewer. -->
     <div v-if="filesStore.loading" :class="['grid', tile.grid, tile.gap]">
-      <div v-for="n in 12" :key="n" class="aspect-square animate-pulse rounded-lg bg-gray-100"></div>
+      <div v-for="n in 6" :key="n" class="aspect-square animate-pulse rounded-lg bg-gray-100"></div>
     </div>
 
     <div v-else-if="showEmpty" class="rounded-lg border border-gray-200 bg-white p-12 text-center">
@@ -938,13 +964,14 @@ function photoMenu(event, file) {
         {{ hasFilters ? "No photos match those filters" : "No photos yet" }}
       </h2>
       <p class="mt-2 text-body text-gray-500">
-        {{ hasFilters ? "Try widening the date range or clearing a filter." : "Drop images above and they'll appear here." }}
+        {{ hasFilters ? "Try widening the date range or clearing a filter." : "Upload photos above and they'll appear here." }}
       </p>
     </div>
 
     <template v-else>
-      <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-body-sm text-gray-500">
-        <p>
+      <div class="mb-3 flex flex-wrap items-center justify-end gap-2 text-body-sm text-gray-500 sm:justify-between">
+        <!-- Mouse-only gestures; meaningless on a touch screen. -->
+        <p class="hidden sm:block">
           Drag across photos to select · Shift-click a range · Ctrl/Cmd-click to toggle ·
           Ctrl/Cmd+A for all loaded
         </p>

@@ -24,6 +24,12 @@ const index = computed(() => props.files.findIndex((f) => f.id === props.file.id
 const hasPrev = computed(() => index.value > 0);
 const hasNext = computed(() => index.value >= 0 && index.value < props.files.length - 1);
 
+// A photo filling the screen is the point on a phone: the name, size and
+// download link cost more headroom than they're worth, and a long-press on
+// the image itself already saves it. Everything else (PDFs, videos —
+// anything without that native save gesture) keeps its full toolbar.
+const isPhoto = computed(() => preview.value?.kind === "image");
+
 // Object URLs made for encrypted files, revoked when the preview moves on.
 let objectUrl = null;
 
@@ -72,6 +78,32 @@ watch(() => props.file.id, () => {
 function go(step) {
   const next = props.files[index.value + step];
   if (next) emit("navigate", next);
+}
+
+/* ------------------------------------------------------- swipe navigation */
+
+// Small screens have no arrow keys and no hover, so a swipe is the natural
+// way to move between photos — the arrow buttons stay for pointer users.
+let touchStart = null;
+
+function onTouchStart(event) {
+  if (event.touches.length !== 1) return;
+  const t = event.touches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
+}
+
+function onTouchEnd(event) {
+  if (!touchStart) return;
+  const t = event.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+  touchStart = null;
+
+  // Mostly horizontal and far enough that it reads as a swipe, not a wobble
+  // mid-pinch or an attempt to scroll a tall PDF.
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  if (dx < 0 && hasNext.value) go(1);
+  else if (dx > 0 && hasPrev.value) go(-1);
 }
 
 function onKeydown(event) {
@@ -156,11 +188,19 @@ onBeforeUnmount(() => {
     aria-labelledby="preview-title"
     @click.self="emit('close')"
   >
-    <!-- Toolbar -->
-    <header class="flex shrink-0 items-center gap-4 px-4 py-3 text-white">
-      <i :class="['fas', fileIcon(file).icon, 'text-lg']" aria-hidden="true"></i>
+    <!-- Toolbar. On a photo, mobile collapses this to just the close button. -->
+    <header
+      :class="[
+        'flex shrink-0 items-center gap-4 px-4 py-3 text-white',
+        isPhoto ? 'justify-end sm:justify-start' : '',
+      ]"
+    >
+      <i
+        :class="['fas', fileIcon(file).icon, 'text-lg', isPhoto ? 'hidden sm:inline-block' : '']"
+        aria-hidden="true"
+      ></i>
 
-      <div class="min-w-0 flex-1">
+      <div :class="['min-w-0 flex-1', isPhoto ? 'hidden sm:block' : '']">
         <h2 id="preview-title" class="truncate text-body font-medium">{{ file.name }}</h2>
         <p class="text-caption text-gray-300">
           {{ formatFileSize(file.size) }}
@@ -177,7 +217,10 @@ onBeforeUnmount(() => {
         :href="`https://www.openstreetmap.org/?mlat=${file.image.location.latitude}&mlon=${file.image.location.longitude}#map=15/${file.image.location.latitude}/${file.image.location.longitude}`"
         target="_blank"
         rel="noopener noreferrer"
-        class="rounded-md px-3 py-2 text-body-sm font-medium transition hover:bg-white/10"
+        :class="[
+          'rounded-md px-3 py-2 text-body-sm font-medium transition hover:bg-white/10',
+          isPhoto ? 'hidden sm:inline-flex' : '',
+        ]"
         :title="`${file.image.location.latitude}, ${file.image.location.longitude}`"
       >
         <i class="fas fa-location-dot mr-2" aria-hidden="true"></i>Where
@@ -185,7 +228,10 @@ onBeforeUnmount(() => {
 
       <button
         type="button"
-        class="rounded-md px-3 py-2 text-body-sm font-medium transition hover:bg-white/10"
+        :class="[
+          'rounded-md px-3 py-2 text-body-sm font-medium transition hover:bg-white/10',
+          isPhoto ? 'hidden sm:inline-flex' : '',
+        ]"
         @click="download"
       >
         <i class="fas fa-download mr-2" aria-hidden="true"></i>Download
@@ -203,11 +249,16 @@ onBeforeUnmount(() => {
     </header>
 
     <!-- Body -->
-    <div class="relative flex min-h-0 flex-1 items-center justify-center p-4" @click.self="emit('close')">
+    <div
+      class="relative flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4"
+      @click.self="emit('close')"
+      @touchstart="onTouchStart"
+      @touchend="onTouchEnd"
+    >
       <button
         v-if="hasPrev"
         type="button"
-        class="absolute left-4 z-10 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+        class="absolute left-4 z-10 hidden rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20 sm:block"
         aria-label="Previous file"
         @click="go(-1)"
       >
@@ -217,7 +268,7 @@ onBeforeUnmount(() => {
       <button
         v-if="hasNext"
         type="button"
-        class="absolute right-4 z-10 rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+        class="absolute right-4 z-10 hidden rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20 sm:block"
         aria-label="Next file"
         @click="go(1)"
       >
@@ -240,7 +291,7 @@ onBeforeUnmount(() => {
         v-else-if="preview.kind === 'image'"
         :src="preview.url"
         :alt="file.name"
-        class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+        class="max-h-full max-w-full rounded-none object-contain shadow-2xl sm:rounded-lg"
       />
 
       <!--
@@ -344,7 +395,10 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <footer v-if="files.length > 1" class="shrink-0 pb-3 text-center text-caption text-gray-400">
+    <footer
+      v-if="files.length > 1"
+      :class="['shrink-0 pb-3 text-center text-caption text-gray-400', isPhoto ? 'hidden sm:block' : '']"
+    >
       {{ index + 1 }} of {{ files.length }} · use ← and → to move between files
     </footer>
   </div>

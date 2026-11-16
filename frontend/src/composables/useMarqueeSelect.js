@@ -31,6 +31,10 @@ export function useMarqueeSelect({ onSelect, rootRef }) {
 
   function onPointerDown(event) {
     if (event.button !== 0) return;
+    // A drag rectangle only makes sense with a mouse. On touch, the same
+    // gesture is a scroll — treating it as a marquee fights the scroll and
+    // steals the tap-to-open that follows.
+    if (event.pointerType && event.pointerType !== "mouse") return;
     // Checkboxes and explicit controls keep their own behaviour.
     if (event.target.closest("[data-select-toggle], input, select, textarea, a")) return;
     // Don't fight the timeline scrubber.

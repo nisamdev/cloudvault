@@ -11,9 +11,11 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
   // Once anything is selected, checkboxes stay visible on every row.
   selecting: { type: Boolean, default: false },
+  /** "list" is a thin row; "grid" is a tile alongside file tiles. */
+  view: { type: String, default: "list" },
 });
 const emit = defineEmits([
-  "open", "drop", "rename", "delete", "download", "update:editing", "select",
+  "open", "drop", "rename", "delete", "download", "update:editing", "select", "menu",
 ]);
 
 const library = useLibraryStore();
@@ -40,10 +42,87 @@ function onSelectClick(event) {
 </script>
 
 <template>
+  <!-- Compact row: one thin line, name and count, everything else behind the
+       menu button — the tall version cost more height than a folder needs. -->
   <li
+    v-if="view === 'list'"
     :draggable="!editing"
     :class="[
-      'group flex items-center gap-3 rounded-lg border bg-white p-4 transition',
+      'group flex items-center gap-2 rounded-lg border bg-white px-3 py-2 transition',
+      selected ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200' : '',
+      isDropTarget ? 'border-primary-600 bg-primary-50 ring-2 ring-primary-200' : '',
+      !selected && !isDropTarget ? 'border-gray-200' : '',
+      isBeingDragged ? 'opacity-40' : 'hover:shadow-sm',
+    ]"
+    @dragstart="startDrag($event, 'folder', folder)"
+    @dragend="endDrag"
+    @dragover="onDragOver($event, folder.id, { descendantIds })"
+    @dragleave="onDragLeave(folder.id)"
+    @drop="handleDrop"
+  >
+    <button
+      type="button"
+      data-select-toggle
+      :class="[
+        'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition',
+        selected
+          ? 'border-primary-600 bg-primary-600 text-white'
+          : 'border-gray-300 text-transparent hover:border-primary-400',
+        selecting || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+      ]"
+      :aria-label="selected ? `Deselect ${folder.name}` : `Select ${folder.name}`"
+      :aria-pressed="selected"
+      @click="onSelectClick"
+    >
+      <i class="fas fa-check text-[9px]" aria-hidden="true"></i>
+    </button>
+
+    <i
+      class="fas fa-folder shrink-0"
+      :style="{ color: folder.shared ? 'var(--color-primary-500)' : 'var(--color-warning-500)' }"
+      aria-hidden="true"
+    ></i>
+
+    <div class="min-w-0 flex-1">
+      <InlineName
+        :name="folder.name"
+        :editing="editing"
+        :input-id="`rename-folder-${folder.id}`"
+        label="Folder name"
+        text-class="text-body-sm font-medium text-gray-800"
+        @update:editing="emit('update:editing', $event)"
+        @rename="emit('rename', { folder, name: $event })"
+        @open="emit('open', folder.id)"
+      />
+    </div>
+
+    <span class="hidden shrink-0 text-caption text-gray-400 sm:block">
+      {{ folder.file_count }} {{ folder.file_count === 1 ? "file" : "files" }}
+    </span>
+
+    <i
+      v-if="folder.shared"
+      class="fas fa-users shrink-0 text-caption text-primary-600"
+      title="Shared with family"
+      aria-label="Shared with family"
+    ></i>
+
+    <button
+      type="button"
+      class="shrink-0 rounded-md p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+      :aria-label="`More actions for ${folder.name}`"
+      @click.stop="emit('menu', $event)"
+    >
+      <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+    </button>
+  </li>
+
+  <!-- Tile: same actions, laid out for a grid of cards alongside files. -->
+  <li
+    v-else
+    :draggable="!editing"
+    :class="[
+      'group relative flex flex-col items-center gap-2 rounded-lg border bg-white p-3 text-center transition',
       selected ? 'border-primary-500 bg-primary-50/40 ring-2 ring-primary-200' : '',
       isDropTarget ? 'border-primary-600 bg-primary-50 ring-2 ring-primary-200' : '',
       !selected && !isDropTarget ? 'border-gray-200' : '',
@@ -59,10 +138,10 @@ function onSelectClick(event) {
       type="button"
       data-select-toggle
       :class="[
-        'flex h-5 w-5 shrink-0 items-center justify-center rounded border transition',
+        'absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded border transition',
         selected
           ? 'border-primary-600 bg-primary-600 text-white'
-          : 'border-gray-300 text-transparent hover:border-primary-400',
+          : 'border-white/80 bg-black/10 text-transparent hover:border-primary-400',
         selecting || selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
       ]"
       :aria-label="selected ? `Deselect ${folder.name}` : `Select ${folder.name}`"
@@ -72,61 +151,42 @@ function onSelectClick(event) {
       <i class="fas fa-check text-[10px]" aria-hidden="true"></i>
     </button>
 
-    <i
-      class="fas fa-folder text-xl"
-      :style="{ color: folder.shared ? 'var(--color-primary-500)' : 'var(--color-warning-500)' }"
-      aria-hidden="true"
-    ></i>
+    <button
+      type="button"
+      class="absolute right-1 top-1 z-10 rounded-md p-1.5 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100 focus-visible:opacity-100"
+      :aria-label="`More actions for ${folder.name}`"
+      @click.stop="emit('menu', $event)"
+    >
+      <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+    </button>
 
-    <div class="min-w-0 flex-1">
+    <button
+      type="button"
+      class="flex aspect-square w-full items-center justify-center rounded-lg bg-gray-50"
+      @click="emit('open', folder.id)"
+    >
+      <i
+        class="fas fa-folder text-4xl"
+        :style="{ color: folder.shared ? 'var(--color-primary-500)' : 'var(--color-warning-500)' }"
+        aria-hidden="true"
+      ></i>
+    </button>
+
+    <div class="w-full min-w-0">
       <InlineName
         :name="folder.name"
         :editing="editing"
-        :input-id="`rename-folder-${folder.id}`"
+        :input-id="`rename-folder-grid-${folder.id}`"
         label="Folder name"
+        text-class="text-body-sm font-medium text-gray-800 text-center"
         @update:editing="emit('update:editing', $event)"
         @rename="emit('rename', { folder, name: $event })"
         @open="emit('open', folder.id)"
       />
-
-      <p class="text-caption text-gray-500">
+      <p class="text-caption text-gray-400">
         {{ folder.file_count }} {{ folder.file_count === 1 ? "file" : "files" }}
-        <span v-if="folder.shared"> · shared with family</span>
+        <i v-if="folder.shared" class="fas fa-users ml-1 text-primary-600" title="Shared with family"></i>
       </p>
-    </div>
-
-    <span
-      v-if="folder.shared"
-      class="rounded-full bg-primary-50 px-2 py-1 text-label font-medium text-primary-700"
-    >
-      <i class="fas fa-users mr-1" aria-hidden="true"></i>Family
-    </span>
-
-    <div class="flex items-center gap-1">
-      <button
-        type="button"
-        class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-        :aria-label="`Download ${folder.name} as ZIP`"
-        @click="emit('download', folder)"
-      >
-        <i class="fas fa-file-zipper" aria-hidden="true"></i>
-      </button>
-      <button
-        type="button"
-        class="rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
-        :aria-label="`Rename ${folder.name}`"
-        @click="emit('update:editing', true)"
-      >
-        <i class="fas fa-pen" aria-hidden="true"></i>
-      </button>
-      <button
-        type="button"
-        class="rounded-md p-2 text-gray-500 transition hover:bg-error-50 hover:text-error-600"
-        :aria-label="`Delete ${folder.name}`"
-        @click="emit('delete', folder)"
-      >
-        <i class="fas fa-trash" aria-hidden="true"></i>
-      </button>
     </div>
   </li>
 </template>

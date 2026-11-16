@@ -218,6 +218,31 @@ services:
       - api
     restart: unless-stopped
 
+  # Browser tests. Kept off `docker compose up` by the profile:
+  #   docker compose --profile e2e run --rm e2e
+  #
+  # Shares the web container's network so the SPA is at http://127.0.0.1:5173.
+  # That loopback address is a secure context, which is the only way Chromium
+  # will keep the Secure refresh cookie when the API is in production mode.
+  # The Vite proxy still reaches the API as it does for the web container.
+  e2e:
+    profiles: ["e2e"]
+    build:
+      context: ./e2e
+    network_mode: "service:web"
+    init: true
+    shm_size: "2gb"
+    working_dir: /work
+    environment:
+      HOME: /tmp
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
+    volumes:
+      - ./e2e:/work
+      # The image's node_modules, not whatever happens to be on the host.
+      - /work/node_modules
+    depends_on:
+      - web
+
 volumes:
   postgres_data:
   redis_data:
