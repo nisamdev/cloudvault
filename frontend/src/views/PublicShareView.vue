@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import api from "@/api/client";
 import { formatFileSize, fileIcon } from "@/utils/formatting";
@@ -33,6 +33,25 @@ onMounted(async () => {
 const isRecord = computed(() => share.value?.kind === "record");
 /** A link to an album shows the photographs in it. */
 const isAlbum = computed(() => share.value?.kind === "album");
+
+// An album is sometimes a mixed bag — a video dropped in alongside the
+// photos. Only the actual pictures get the thumbnail-grid, no-download
+// treatment; anything else (a video, or a photo whose thumbnail a password is
+// still withholding) keeps the plain name/size card with its own Download.
+const albumPhotos = computed(
+  () => share.value?.album?.photos.filter((p) => p.is_image && p.thumbnail_url) ?? [],
+);
+const albumOtherFiles = computed(
+  () => share.value?.album?.photos.filter((p) => !(p.is_image && p.thumbnail_url)) ?? [],
+);
+/** The photo currently open full-size, if any. */
+const lightboxPhoto = ref(null);
+
+function onKeydown(event) {
+  if (event.key === "Escape" && lightboxPhoto.value) lightboxPhoto.value = null;
+}
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
 // Photos going down a public link are cleaned of where they were taken, and a
 // HEIC has to be re-encoded to lose it — so the file that arrives is a JPEG.
@@ -127,9 +146,36 @@ function formatValue(detail) {
             />
           </div>
 
-          <ul class="mt-6 grid gap-3 border-t border-gray-200 pt-6 sm:grid-cols-2 lg:grid-cols-3">
+          <!-- The photos themselves: a view-only library, not a download list. -->
+          <ul
+            v-if="albumPhotos.length"
+            class="mt-6 grid grid-cols-3 gap-2 border-t border-gray-200 pt-6 sm:grid-cols-4"
+          >
+            <li v-for="photo in albumPhotos" :key="photo.id">
+              <button
+                type="button"
+                class="block aspect-square w-full overflow-hidden rounded-base bg-gray-100 transition hover:opacity-90"
+                :aria-label="`View ${photo.name}`"
+                @click="lightboxPhoto = photo"
+              >
+                <img
+                  :src="photo.thumbnail_url"
+                  :alt="photo.name"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                />
+              </button>
+            </li>
+          </ul>
+
+          <!-- Anything that isn't a plain photo (a video, say) keeps its own
+               name, size and Download button. -->
+          <ul
+            v-if="albumOtherFiles.length"
+            :class="['grid gap-3 sm:grid-cols-2 lg:grid-cols-3', albumPhotos.length ? 'mt-3' : 'mt-6 border-t border-gray-200 pt-6']"
+          >
             <li
-              v-for="photo in share.album.photos"
+              v-for="photo in albumOtherFiles"
               :key="photo.id"
               class="flex flex-col gap-2 rounded-base border border-gray-200 p-3 text-left"
             >
@@ -319,6 +365,31 @@ function formatValue(detail) {
       <p class="mt-4 text-center text-caption text-gray-400">
         Shared securely with CloudVault
       </p>
+    </div>
+
+    <!-- Full-size view of one photo from the library grid above. No download
+         here either — on purpose, same as the grid it opened from. -->
+    <div
+      v-if="lightboxPhoto"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/90 p-4"
+      role="dialog"
+      aria-modal="true"
+      @click.self="lightboxPhoto = null"
+    >
+      <button
+        type="button"
+        class="absolute right-4 top-4 rounded-md p-2 text-white transition hover:bg-white/10"
+        aria-label="Close"
+        @click="lightboxPhoto = null"
+      >
+        <i class="fas fa-xmark text-lg" aria-hidden="true"></i>
+      </button>
+
+      <img
+        :src="lightboxPhoto.thumbnail_url"
+        :alt="lightboxPhoto.name"
+        class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+      />
     </div>
   </div>
 </template>

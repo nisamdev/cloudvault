@@ -221,10 +221,26 @@ module Api
               taken_at: photo.taken_at,
               place_name: photo.place_name,
               width: photo.image_width,
-              height: photo.image_height
+              height: photo.image_height,
+              is_image: photo.picture?,
+              # A password gates the pixels, not just the download: nothing of
+              # what the password protects should be visible before it is given.
+              thumbnail_url: photo.picture? && !link.password_protected? ? share_thumbnail_url(photo) : nil
             }
           end
         }
+      end
+
+      # A view-only size for the public album grid — not the original, which
+      # stays behind the per-file Download button (and, for a video, the only
+      # option it has).
+      def share_thumbnail_url(photo)
+        return nil unless photo.thumbnail.attached?
+
+        StorageUrl.for(photo.thumbnail, expires_in: 1.hour)
+      rescue StandardError => e
+        Rails.logger.warn("[shares] thumbnail url failed for #{photo.id}: #{e.class}")
+        nil
       end
 
       def shared_record(record)
