@@ -34,21 +34,36 @@ const isRecord = computed(() => share.value?.kind === "record");
 /** A link to an album shows the photographs in it. */
 const isAlbum = computed(() => share.value?.kind === "album");
 
-// An album is sometimes a mixed bag — a video dropped in alongside the
-// photos. Only the actual pictures get the thumbnail-grid, no-download
-// treatment; anything else (a video, or a photo whose thumbnail a password is
-// still withholding) keeps the plain name/size card with its own Download.
-const albumPhotos = computed(
-  () => share.value?.album?.photos.filter((p) => p.is_image && p.thumbnail_url) ?? [],
+// One gallery, one tile style, for everything in the album — a photo gets
+// its real thumbnail; a video (or a photo a password is still withholding)
+// gets an icon tile instead of a second, separately-laid-out section.
+const albumItems = computed(() => share.value?.album?.photos ?? []);
+/** Index into albumItems of the item open full-size, or null when closed. */
+const lightboxIndex = ref(null);
+const lightboxPhoto = computed(() =>
+  lightboxIndex.value === null ? null : albumItems.value[lightboxIndex.value] ?? null,
 );
-const albumOtherFiles = computed(
-  () => share.value?.album?.photos.filter((p) => !(p.is_image && p.thumbnail_url)) ?? [],
-);
-/** The photo currently open full-size, if any. */
-const lightboxPhoto = ref(null);
+
+function openLightbox(index) {
+  lightboxIndex.value = index;
+}
+function closeLightbox() {
+  lightboxIndex.value = null;
+}
+function showPrev() {
+  if (lightboxIndex.value === null || !albumItems.value.length) return;
+  lightboxIndex.value = (lightboxIndex.value - 1 + albumItems.value.length) % albumItems.value.length;
+}
+function showNext() {
+  if (lightboxIndex.value === null || !albumItems.value.length) return;
+  lightboxIndex.value = (lightboxIndex.value + 1) % albumItems.value.length;
+}
 
 function onKeydown(event) {
-  if (event.key === "Escape" && lightboxPhoto.value) lightboxPhoto.value = null;
+  if (lightboxIndex.value === null) return;
+  if (event.key === "Escape") closeLightbox();
+  else if (event.key === "ArrowLeft") showPrev();
+  else if (event.key === "ArrowRight") showNext();
 }
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
@@ -146,57 +161,31 @@ function formatValue(detail) {
             />
           </div>
 
-          <!-- The photos themselves: a view-only library, not a download list. -->
+          <!-- One gallery, one tile style, for everything in the album. -->
           <ul
-            v-if="albumPhotos.length"
+            v-if="albumItems.length"
             class="mt-6 grid grid-cols-3 gap-2 border-t border-gray-200 pt-6 sm:grid-cols-4"
           >
-            <li v-for="photo in albumPhotos" :key="photo.id">
+            <li v-for="(photo, index) in albumItems" :key="photo.id">
               <button
                 type="button"
-                class="block aspect-square w-full overflow-hidden rounded-base bg-gray-100 transition hover:opacity-90"
+                class="relative block aspect-square w-full overflow-hidden rounded-base bg-gray-100 transition hover:opacity-90"
                 :aria-label="`View ${photo.name}`"
-                @click="lightboxPhoto = photo"
+                @click="openLightbox(index)"
               >
                 <img
+                  v-if="photo.is_image && photo.thumbnail_url"
                   :src="photo.thumbnail_url"
                   :alt="photo.name"
                   loading="lazy"
                   class="h-full w-full object-cover"
                 />
-              </button>
-            </li>
-          </ul>
-
-          <!-- Anything that isn't a plain photo (a video, say) keeps its own
-               name, size and Download button. -->
-          <ul
-            v-if="albumOtherFiles.length"
-            :class="['grid gap-3 sm:grid-cols-2 lg:grid-cols-3', albumPhotos.length ? 'mt-3' : 'mt-6 border-t border-gray-200 pt-6']"
-          >
-            <li
-              v-for="photo in albumOtherFiles"
-              :key="photo.id"
-              class="flex flex-col gap-2 rounded-base border border-gray-200 p-3 text-left"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-body-sm font-medium text-gray-800">{{ photo.name }}</p>
-                <p class="truncate text-caption text-gray-500">
-                  <template v-if="photo.place_name">{{ photo.place_name }} · </template>
-                  {{ formatFileSize(photo.size) }}
-                </p>
-              </div>
-              <button
-                type="button"
-                :disabled="downloading === photo.id || (share.requires_password && !password)"
-                class="rounded-base bg-primary-600 px-3 py-1.5 text-body-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
-                @click="download(photo)"
-              >
-                <i
-                  :class="['fas mr-1.5', downloading === photo.id ? 'fa-circle-notch fa-spin' : 'fa-download']"
-                  aria-hidden="true"
-                ></i>
-                {{ downloading === photo.id ? "Preparing…" : "Download" }}
+                <span v-else class="flex h-full w-full flex-col items-center justify-center gap-1.5 text-gray-400">
+                  <i :class="['fas text-2xl', fileIcon(photo).icon, fileIcon(photo).className]" aria-hidden="true"></i>
+                  <span class="px-1 text-center text-[11px] leading-tight text-gray-500">
+                    {{ photo.is_image ? "Locked" : "Video" }}
+                  </span>
+                </span>
               </button>
             </li>
           </ul>
@@ -367,29 +356,84 @@ function formatValue(detail) {
       </p>
     </div>
 
-    <!-- Full-size view of one photo from the library grid above. No download
-         here either — on purpose, same as the grid it opened from. -->
+    <!-- Full-size view of one item from the gallery grid above, with a way
+         to step to the next or previous one without closing it. -->
     <div
       v-if="lightboxPhoto"
       class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/90 p-4"
       role="dialog"
       aria-modal="true"
-      @click.self="lightboxPhoto = null"
+      @click.self="closeLightbox"
     >
       <button
         type="button"
         class="absolute right-4 top-4 rounded-md p-2 text-white transition hover:bg-white/10"
         aria-label="Close"
-        @click="lightboxPhoto = null"
+        @click="closeLightbox"
       >
         <i class="fas fa-xmark text-lg" aria-hidden="true"></i>
       </button>
 
+      <button
+        v-if="albumItems.length > 1"
+        type="button"
+        class="absolute left-2 top-1/2 -translate-y-1/2 rounded-full p-3 text-white transition hover:bg-white/10 sm:left-4"
+        aria-label="Previous"
+        @click.stop="showPrev"
+      >
+        <i class="fas fa-chevron-left text-xl" aria-hidden="true"></i>
+      </button>
+      <button
+        v-if="albumItems.length > 1"
+        type="button"
+        class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-3 text-white transition hover:bg-white/10 sm:right-4"
+        aria-label="Next"
+        @click.stop="showNext"
+      >
+        <i class="fas fa-chevron-right text-xl" aria-hidden="true"></i>
+      </button>
+
       <img
+        v-if="lightboxPhoto.is_image && lightboxPhoto.thumbnail_url"
         :src="lightboxPhoto.thumbnail_url"
         :alt="lightboxPhoto.name"
         class="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
       />
+
+      <!-- A video (or a still-locked photo) has no view-only form here, so
+           this is the one place the gallery still offers a Download. -->
+      <div v-else class="flex max-w-xs flex-col items-center gap-3 rounded-lg bg-white p-6 text-center shadow-2xl">
+        <i :class="['fas text-4xl', fileIcon(lightboxPhoto).icon, fileIcon(lightboxPhoto).className]" aria-hidden="true"></i>
+        <p class="break-words text-body-sm font-medium text-gray-800">{{ lightboxPhoto.name }}</p>
+        <p class="text-caption text-gray-500">{{ formatFileSize(lightboxPhoto.size) }}</p>
+
+        <div v-if="share.requires_password && !password" class="w-full text-left">
+          <label for="share-password-lightbox" class="mb-1.5 block text-caption font-medium text-gray-700">
+            Password required
+          </label>
+          <input
+            id="share-password-lightbox"
+            v-model="password"
+            type="password"
+            autocomplete="off"
+            placeholder="Enter password"
+            class="w-full rounded-base border border-gray-300 px-3 py-1.5 text-body-sm outline-none focus:border-transparent focus:ring-2 focus:ring-primary-500"
+          />
+        </div>
+        <button
+          v-else
+          type="button"
+          :disabled="downloading === lightboxPhoto.id"
+          class="rounded-base bg-primary-600 px-4 py-1.5 text-body-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
+          @click="download(lightboxPhoto)"
+        >
+          <i
+            :class="['fas mr-1.5', downloading === lightboxPhoto.id ? 'fa-circle-notch fa-spin' : 'fa-download']"
+            aria-hidden="true"
+          ></i>
+          {{ downloading === lightboxPhoto.id ? "Preparing…" : "Download" }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
